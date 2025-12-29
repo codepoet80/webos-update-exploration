@@ -1,0 +1,25 @@
+{
+  "packages": [
+    {
+      "name": "com.example.updatetest",
+      "version": "1.0.0",
+      "filename": "com.example.updatetest_1.0.0_all.ipk",
+      "size": 1104,
+      "md5": "3e8e5e4f1e2ad264d499eb66e7cc3837",
+      "description": "Test update - creates UpdateApplied.txt in /media/internal",
+      "min_version": "",
+      "target_build": "Nova-99.0.0"
+    },
+    {
+      "name": "openssl-update",
+      "version": "1.0.2u-1",
+      "filename": "openssl-update_1.0.2u-1_armv7.ipk",
+      "size": 1174572,
+      "md5": "8c215648985ce0ccd5df3f69ab50ec9e",
+      "description": "OpenSSL security update (0.9.8k -> 1.0.2u) - Fixes Heartbleed, adds TLS 1.2",
+      "min_version": "",
+      "target_build": "Nova-99.0.0"
+    }
+  ],
+  "count": 2
+}
