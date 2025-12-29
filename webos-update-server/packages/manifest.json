@@ -1,0 +1,15 @@
+{
+  "packages": [
+    {
+      "name": "com.example.updatetest",
+      "version": "1.0.0",
+      "filename": "com.example.updatetest_1.0.0_all.ipk",
+      "size": 1104,
+      "md5": "3e8e5e4f1e2ad264d499eb66e7cc3837",
+      "description": "Test update - creates UpdateApplied.txt in /media/internal",
+      "min_version": "",
+      "target_build": "Nova-99.0.0"
+    }
+  ],
+  "count": 1
+}
