@@ -49,11 +49,14 @@ class HMACAuth:
         body: bytes
     ) -> str:
         """
-        Compute HMAC-MD5 digest.
+        Compute HMAC-MD5 digest per OMA DM / SyncML spec.
 
         The SyncML HMAC computation is:
-        1. B64(H(username:password))
-        2. HMAC-MD5(B64(H(username:password)), nonce:B64(H(body)))
+        1. credential = B64(H(username:password))
+        2. body_digest = B64(H(body))
+        3. If nonce is present: message = nonce:body_digest
+           If no nonce: message = body_digest
+        4. MAC = HMAC-MD5(credential, message)
         """
         # Step 1: H(username:password)
         cred_hash = hashlib.md5(f"{username}:{password}".encode()).digest()
@@ -63,8 +66,14 @@ class HMACAuth:
         body_hash = hashlib.md5(body).digest()
         body_b64 = base64.b64encode(body_hash).decode()
 
-        # Step 3: HMAC-MD5(cred_b64, nonce:body_b64)
-        message = nonce + b':' + body_b64.encode()
+        # Step 3: Build message - include nonce if present
+        if nonce and len(nonce) > 0:
+            message = nonce + b':' + body_b64.encode()
+        else:
+            # No nonce - just use body digest
+            message = body_b64.encode()
+
+        # Step 4: HMAC-MD5
         mac = hmac.new(cred_b64.encode(), message, hashlib.md5).digest()
 
         return base64.b64encode(mac).decode()

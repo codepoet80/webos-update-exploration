@@ -20,13 +20,19 @@ CERTS_DIR = BASE_DIR / "certs"
 
 # Server identity
 SERVER_ID = "webos-update-server"
-SERVER_URL = f"http://localhost:{PORT}/palmcsext/swupdateserver"
+# Base URL for package downloads (used in API responses)
+# Note: Update this to match your device's network access to the server
+SERVER_URL = f"http://192.168.10.20:{PORT}"
+# Legacy OMA DM endpoint path (kept for reference)
+DM_ENDPOINT = "/palmcsext/swupdateserver"
 
 # Default credentials (from device DmTree.xml)
+# Client authenticates as guest
 DEFAULT_USERNAME = "guest"
 DEFAULT_PASSWORD = "guestpassword"
-SERVER_USERNAME = "omadm.swupdate.palm.com"
-SERVER_PASSWORD = "serverguestpassword"
+# Server authenticates as webos-update-server (must match DmTree.xml AAuthName/AAuthSecret)
+SERVER_USERNAME = "webos-update-server"
+SERVER_PASSWORD = "serverpassword"
 
 # Update configuration
 UPDATE_VERSION = "3.0.6"  # Version to offer

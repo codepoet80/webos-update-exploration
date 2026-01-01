@@ -100,8 +100,14 @@ async def oma_dm_endpoint(request: Request):
 
     # Check for HMAC authentication header
     hmac_header = request.headers.get("x-syncml-hmac", "")
+    client_nonce = b""  # Default empty nonce for first exchange
+
     if hmac_header:
         logger.debug(f"HMAC header: {hmac_header}")
+        # Parse the HMAC header to extract any nonce
+        auth_parser = HMACAuth()
+        hmac_parts = auth_parser.parse_hmac_header(hmac_header)
+        logger.debug(f"HMAC parts: {hmac_parts}")
 
     try:
         # Parse the SyncML message
@@ -118,11 +124,44 @@ async def oma_dm_endpoint(request: Request):
             session_id=message.header.session_id
         )
 
+        # Extract client nonce from message meta if present
+        if message.header.meta.get('NextNonce'):
+            try:
+                client_nonce = base64.b64decode(message.header.meta['NextNonce'])
+                session.client_nonce = client_nonce
+                logger.debug(f"Got client NextNonce: {client_nonce.hex()}")
+            except Exception as e:
+                logger.warning(f"Failed to decode client nonce: {e}")
+
         # Handle authentication
         if not session.authenticated:
-            # For now, accept all connections
-            # Full implementation would verify HMAC
-            session.authenticated = True
+            # Verify client's HMAC if provided
+            if hmac_header:
+                auth = HMACAuth()
+                hmac_parts = auth.parse_hmac_header(hmac_header)
+                client_mac = hmac_parts.get('mac', '')
+                client_username = hmac_parts.get('username', config.DEFAULT_USERNAME)
+
+                # Use server's nonce for verification (empty for first message)
+                verify_nonce = session.server_nonce if session.server_nonce else b""
+                expected_mac = auth.compute_hmac(
+                    client_username,
+                    config.DEFAULT_PASSWORD,
+                    verify_nonce,
+                    body
+                )
+
+                if client_mac == expected_mac:
+                    logger.info(f"Client HMAC verified successfully")
+                    session.authenticated = True
+                else:
+                    logger.warning(f"Client HMAC mismatch. Got: {client_mac}, Expected: {expected_mac}")
+                    # Accept anyway for now to debug further
+                    session.authenticated = True
+            else:
+                # No HMAC - accept for testing
+                session.authenticated = True
+
             session.username = message.header.cred_data or "guest"
             logger.info(f"Session {session.session_id} authenticated as {session.username}")
 
@@ -143,15 +182,23 @@ async def oma_dm_endpoint(request: Request):
 
         logger.info(f"Response size: {len(response_body)} bytes")
 
-        # Build response with HMAC if needed
+        # Build response with HMAC if client sent HMAC
         response_headers = {}
-        if hmac_header and session.client_nonce:
+        if hmac_header:
             auth = HMACAuth()
-            auth.set_client_nonce(session.client_nonce)
-            mac = auth.create_server_auth(response_body, session.client_nonce)
+            # Use client's nonce if available, otherwise empty
+            nonce_for_response = session.client_nonce if session.client_nonce else b""
+            mac = auth.compute_hmac(
+                config.SERVER_USERNAME,
+                config.SERVER_PASSWORD,
+                nonce_for_response,
+                response_body
+            )
             response_headers["x-syncml-hmac"] = (
                 f"algorithm=MD5, username={config.SERVER_USERNAME}, mac={mac}"
             )
+            logger.debug(f"Response HMAC: algorithm=MD5, username={config.SERVER_USERNAME}, mac={mac}")
+            logger.debug(f"Response nonce used: {nonce_for_response.hex() if nonce_for_response else '(empty)'}")
 
         return Response(
             content=response_body,
@@ -542,6 +589,136 @@ async def list_sessions():
             for s in session_manager.sessions.values()
         ]
     }
+
+
+# Direct Update API - bypasses OMA DM for WiFi-only devices
+
+@app.get("/api/updates/check")
+async def check_updates_direct(build: str = "", swv: str = ""):
+    """
+    Direct update check endpoint - bypasses OMA DM.
+
+    Parameters:
+    - build: Current device build (e.g., "Nova-3.0.5-86")
+    - swv: Software version (e.g., "3.0.5")
+
+    Returns available updates in a simple JSON format.
+    Returns all packages in the update bundle.
+    """
+    device_build = build or swv
+
+    if not device_build:
+        return JSONResponse({
+            "status": "error",
+            "message": "Missing build or swv parameter",
+            "updateAvailable": False
+        })
+
+    logger.info(f"Direct update check for build: {device_build}")
+
+    # Get all packages that apply to this device build
+    all_packages = []
+    for pkg in update_manager.packages.values():
+        # Check if this package applies to the device
+        if pkg.target_build:
+            pkg_target = update_manager._parse_build_version(pkg.target_build)
+            device_ver = update_manager._parse_build_version(device_build)
+            if device_ver >= pkg_target:
+                continue  # Already at or past this version
+
+        pkg_url = update_manager.get_package_url(pkg)
+        all_packages.append({
+            "name": pkg.name,
+            "version": pkg.version,
+            "filename": pkg.filename,
+            "url": pkg_url,
+            "size": pkg.size,
+            "md5": pkg.md5,
+            "description": pkg.description,
+            "targetBuild": pkg.target_build
+        })
+
+    if not all_packages:
+        return JSONResponse({
+            "status": "ok",
+            "updateAvailable": False,
+            "currentBuild": device_build
+        })
+
+    return JSONResponse({
+        "status": "ok",
+        "updateAvailable": True,
+        "currentBuild": device_build,
+        "packageCount": len(all_packages),
+        "packages": all_packages
+    })
+
+
+@app.get("/api/updates/urls")
+async def get_update_urls(build: str = ""):
+    """
+    Get update URLs in the format expected by UpdateDaemon.
+
+    Returns URLs file content that can be written to
+    /var/lib/software/SessionFiles/urls
+    """
+    if not build:
+        return Response(content="", media_type="text/plain")
+
+    pkg = update_manager.check_update_available(build)
+
+    if not pkg:
+        return Response(content="", media_type="text/plain")
+
+    pkg_url = update_manager.get_package_url(pkg)
+
+    # Format: one URL per line
+    urls_content = f"{pkg_url}\n"
+
+    return Response(content=urls_content, media_type="text/plain")
+
+
+@app.get("/api/updates/session-files")
+async def get_session_files(build: str = ""):
+    """
+    Get all session files needed for update in a single response.
+
+    Returns a JSON object containing:
+    - urls: Download URLs
+    - update_list: Package list
+    - Other metadata
+    """
+    if not build:
+        return JSONResponse({
+            "status": "error",
+            "message": "Missing build parameter"
+        })
+
+    pkg = update_manager.check_update_available(build)
+
+    if not pkg:
+        return JSONResponse({
+            "status": "ok",
+            "updateAvailable": False
+        })
+
+    pkg_url = update_manager.get_package_url(pkg)
+    pkg_path = f"/var/lib/update/{pkg.filename}"
+
+    return JSONResponse({
+        "status": "ok",
+        "updateAvailable": True,
+        "files": {
+            "urls": pkg_url,
+            "update_list": pkg_path,
+            "package": {
+                "name": pkg.name,
+                "version": pkg.version,
+                "size": pkg.size,
+                "md5": pkg.md5
+            }
+        }
+    })
 
 
 def run_server():

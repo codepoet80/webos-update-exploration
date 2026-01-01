@@ -87,22 +87,267 @@ The TouchPad stores its DM configuration at `/usr/share/omadm/DmTree.xml`. Key p
 
 ## Creating IPK Packages
 
+### Required Control File Fields
+
+webOS ipkg requires specific fields beyond standard Debian format:
+
+```
+Package: com.palm.mypackage
+Version: 1.0.0
+Section: misc
+Priority: optional
+Architecture: all
+Installed-Size: 1
+Maintainer: Your Name <email@example.com>
+Description: Package description here.
+webOS-Package-Format-Version: 2
+webOS-Packager-Version: 3.0.5b38
+```
+
+**Critical fields:**
+- `webOS-Package-Format-Version: 2` - Required for ipkg to accept the package
+- `webOS-Packager-Version: 3.0.5b38` - Required for ipkg to accept the package
+- `Installed-Size` - Required field
+- `com.palm.*` prefix gives special system privileges
+
+### Building IPK Packages
+
 ```bash
 # Structure
 mkdir -p my-package/{CONTROL,data}
 
-# CONTROL/control (required metadata)
-# CONTROL/postinst (optional post-install script)
+# CONTROL/control (required - see format above)
+# CONTROL/postinst (optional post-install script, must be executable)
 
-# data/ mirrors device filesystem
+# data/ mirrors device filesystem with ./ prefix
 # e.g., data/media/internal/test.txt → /media/internal/test.txt
 
-# Build
+# Build with correct format:
 echo "2.0" > debian-binary
-cd CONTROL && tar czf ../control.tar.gz . && cd ..
-cd data && tar czf ../data.tar.gz . && cd ..
-ar rc my-package_1.0.0_all.ipk debian-binary control.tar.gz data.tar.gz
+
+# Control tar MUST have ./ prefix and root ownership
+cd CONTROL && tar --uid=0 --gid=0 -czf ../control.tar.gz ./control ./postinst && cd ..
+
+# Data tar MUST have ./ prefix and root ownership
+cd data && tar --uid=0 --gid=0 -czf ../data.tar.gz ./media && cd ..
+
+# Create IPK (order matters: debian-binary first)
+ar -cr my-package_1.0.0_all.ipk debian-binary control.tar.gz data.tar.gz
 ```
+
+### Build Script
+
+Use `webos-update-server/packages/build-ota.sh` to build properly formatted IPKs:
+```bash
+cd webos-update-server/packages
+./build-ota.sh
+```
+
+## Direct Update API (Bypasses OmaDm)
+
+The server provides direct REST endpoints that bypass the OMA DM protocol, useful for WiFi-only devices where OmaDm fails due to missing carrier detection:
+
+```bash
+# Check for updates
+curl "http://SERVER:8080/api/updates/check?build=Nova-3.0.5-86"
+
+# Get package URLs
+curl "http://SERVER:8080/api/updates/urls?build=Nova-3.0.5-86"
+```
+
+### Device-side Update Script
+
+`device-scripts/direct-update.sh` downloads packages and creates session files:
+```bash
+# On device:
+./direct-update.sh http://192.168.10.20:8080 -y
+/usr/share/ota-scripts/make-update-uimage
+reboot
+```
+
+## OTA Update Process - FULLY WORKING ✓
+
+The complete OTA update mechanism has been reverse-engineered and is fully functional.
+
+### Quick Start - Full OTA Update
+
+```bash
+# 1. Build packages (on host)
+cd webos-update-server/packages/ota-build
+./build-ota.sh
+
+# 2. Upload packages to device
+novacom put file:///var/lib/update/updatefsinfo_3.0.5-test1_all.ipk < updatefsinfo_3.0.5-test1_all.ipk
+novacom put file:///var/lib/update/com.palm.updatetest_1.0.0_all.ipk < com.palm.updatetest_1.0.0_all.ipk
+
+# 3. Create session files (paths must match filenames exactly!)
+echo '/var/lib/update/updatefsinfo_3.0.5-test1_all.ipk
+/var/lib/update/com.palm.updatetest_1.0.0_all.ipk' | novacom put file:///var/lib/software/SessionFiles/update_list.txt
+
+echo '/rootfs/var/lib/update/updatefsinfo_3.0.5-test1_all.ipk
+/rootfs/var/lib/update/com.palm.updatetest_1.0.0_all.ipk' | novacom put file:///var/lib/software/SessionFiles/install_list.txt
+
+# 4. Set updating flag
+echo '1' | novacom put file:///var/lib/software/updating
+
+# 5. Create update image and reboot
+novacom run file:///usr/share/ota-scripts/make-update-uimage
+novacom run file:///sbin/reboot
+```
+
+### Session Files (CRITICAL)
+
+| File | Purpose | Path Format |
+|------|---------|-------------|
+| `update_list.txt` | Used by make-update-uimage | `/var/lib/update/package.ipk` |
+| `install_list.txt` | Used by PmUpdater in ramdisk | `/rootfs/var/lib/update/package.ipk` |
+| `updating` | Flag file | Must contain `1` |
+| `update_status.txt` | Result codes | Created by PmUpdater |
+
+**CRITICAL**: Filenames in session files must EXACTLY match files in `/var/lib/update/`!
+
+### OTA Flow Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ 1. PREPARATION (on running system)                               │
+├──────────────────────────────────────────────────────────────────┤
+│ • Packages uploaded to /var/lib/update/                          │
+│ • Session files created in /var/lib/software/SessionFiles/       │
+│ • updating flag set to 1                                         │
+│ • make-update-uimage creates /boot/update-uimage (~9MB)          │
+│ • /boot/uImage symlinked to update-uimage                        │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ reboot
+┌──────────────────────────────────────────────────────────────────┐
+│ 2. OTA RAMDISK BOOT                                              │
+├──────────────────────────────────────────────────────────────────┤
+│ • Device boots from update-uimage (minimal ramdisk)              │
+│ • Root filesystem mounted at /rootfs                             │
+│ • /usr/share/ota-scripts/ota.sh orchestrates update              │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 3. PRE-UPDATE (ota.sh → pre-update script)                       │
+├──────────────────────────────────────────────────────────────────┤
+│ • Saves user data to /media/internal/.save_for_software_update/  │
+│ • Progress file set to 1                                         │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 4. PACKAGE INSTALLATION (PmUpdater)                              │
+├──────────────────────────────────────────────────────────────────┤
+│ • PmUpdater reads /rootfs/var/lib/software/SessionFiles/         │
+│ • Calls mmipkg to install packages from install_list.txt         │
+│ • Runs postinst scripts for each package                         │
+│ • Writes results to update_status.txt (0 = success)              │
+│ • Progress file set to 2                                         │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 5. POST-UPDATE (ota.sh → post-update script)                     │
+├──────────────────────────────────────────────────────────────────┤
+│ • Filesystem checks (e2fsck)                                     │
+│ • Partition resizing if needed                                   │
+│ • Data migration                                                 │
+│ • /boot/uImage symlink restored to normal kernel                 │
+│ • updating flag cleared                                          │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ reboot
+┌──────────────────────────────────────────────────────────────────┐
+│ 6. NORMAL BOOT                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│ • Device boots normally from uImage-2.6.35-palm-tenderloin       │
+│ • Packages are installed and functional                          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Progress States
+
+| State | Meaning |
+|-------|---------|
+| 0 | Begin (initial state) |
+| 1 | Pre-update/dataexport completed |
+| 2 | Package installation completed, begin post-update |
+| -2 | Installation failed, retrying |
+
+### update_status.txt Format
+
+Success:
+```
+0
+packagename_version_arch
+0
+0
+```
+
+Failure:
+```
+E0060004
+packagename_version_arch
+0
+E0060004
+```
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| E0060004 | Package installation failed |
+| E0060011 | Update image creation failed |
+| E0060012 | Data save/restore error |
+| E0060013 | Data export failed |
+| E0060014 | resizefat error |
+| E0060015 | pre-update script not found |
+
+### PmUpdater Details
+
+PmUpdater is proprietary (not in HP OSS) but uses **mmipkg** internally:
+
+```bash
+# mmipkg usage (same as what PmUpdater calls)
+mmipkg [-v] [-o root] [-n] [-r] <install|remove> <list of ipks>
+
+# Options:
+#   -v    Verbose
+#   -o    Alternate root path (e.g., -o /rootfs)
+#   -n    No scripts (skip postinst/prerm)
+#   -r    Reinstall
+```
+
+### Alternative: Direct Installation (No Reboot)
+
+Skip the full OTA and install packages directly on running system:
+
+```bash
+# Using mmipkg (what PmUpdater uses)
+mmipkg install /var/lib/update/package.ipk
+
+# Using ipkg (standard)
+ipkg install /var/lib/update/package.ipk
+```
+
+### Troubleshooting
+
+**E0060004 - Package installation failed**
+- Check that filenames in session files match actual files in /var/lib/update/
+- Verify packages have correct webOS control file fields
+- Test with `mmipkg install <package>` on running system first
+
+**Device stuck in OTA ramdisk**
+- Connect via novacom and check `/rootfs/var/log/progress`
+- Check `/rootfs/var/lib/software/SessionFiles/update_status.txt`
+- Manually restore uImage: `ln -sf uImage-2.6.35-palm-tenderloin /rootfs/boot/uImage`
+
+**make-update-uimage fails**
+- Ensure updatefsinfo package is first in update_list.txt
+- Check /var/log/uimage.log for details
 
 ---
 

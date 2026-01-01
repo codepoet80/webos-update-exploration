@@ -1,12 +1,22 @@
 {
   "packages": [
     {
-      "name": "com.example.updatetest",
+      "name": "updatefsinfo",
+      "version": "3.0.5-test1",
+      "filename": "updatefsinfo_3.0.5-test1_all.ipk",
+      "size": 798,
+      "md5": "608cfa83ea9487b0b4232d2d3623eff3",
+      "description": "Update filesystem info for OTA update",
+      "min_version": "",
+      "target_build": "Nova-99.0.0"
+    },
+    {
+      "name": "com.palm.updatetest",
       "version": "1.0.0",
-      "filename": "com.example.updatetest_1.0.0_all.ipk",
-      "size": 1104,
-      "md5": "3e8e5e4f1e2ad264d499eb66e7cc3837",
-      "description": "Test update - creates UpdateApplied.txt in /media/internal",
+      "filename": "com.palm.updatetest_1.0.0_all.ipk",
+      "size": 1004,
+      "md5": "0a433466d183fa6ae1c4cd8b8f4544ca",
+      "description": "Test update package for OTA verification",
       "min_version": "",
       "target_build": "Nova-99.0.0"
     }

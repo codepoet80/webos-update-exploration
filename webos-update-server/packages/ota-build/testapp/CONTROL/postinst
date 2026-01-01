@@ -1,0 +1,23 @@
+#!/bin/sh
+# Post-install script for test update package
+# Creates a visible indicator that the update was applied
+
+MARKER_FILE="/media/internal/OTA_UPDATE_SUCCESS.txt"
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+
+cat > "$MARKER_FILE" << EOF
+======================================
+OTA UPDATE SUCCESSFULLY APPLIED
+======================================
+
+Update Package: com.palm.updatetest
+Version: 1.0.0
+Applied: $TIMESTAMP
+
+This file indicates the OTA update
+mechanism is working correctly!
+======================================
+EOF
+
+echo "OTA test update installed successfully"
+exit 0

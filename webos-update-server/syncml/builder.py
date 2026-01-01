@@ -56,7 +56,9 @@ class SyncMLBuilder:
         source: str = None,
         statuses: List[StatusBuilder] = None,
         commands: List[ET.Element] = None,
-        is_final: bool = True
+        is_final: bool = True,
+        cred_mac: str = None,
+        next_nonce: str = None
     ) -> ET.Element:
         """Build a complete SyncML response message"""
         self.reset_cmd_id()
@@ -66,7 +68,7 @@ class SyncMLBuilder:
         syncml.set('xmlns', 'SYNCML:SYNCML1.2')
 
         # SyncHdr
-        sync_hdr = self._build_header(session_id, msg_id, target, source)
+        sync_hdr = self._build_header(session_id, msg_id, target, source, cred_mac, next_nonce)
         syncml.append(sync_hdr)
 
         # SyncBody
@@ -93,7 +95,9 @@ class SyncMLBuilder:
         session_id: str,
         msg_id: str,
         target: str,
-        source: str = None
+        source: str = None,
+        cred_mac: str = None,
+        next_nonce: str = None
     ) -> ET.Element:
         """Build SyncHdr element"""
         hdr = ET.Element('SyncHdr')
@@ -110,6 +114,19 @@ class SyncMLBuilder:
         # Source (server)
         source_elem = ET.SubElement(hdr, 'Source')
         ET.SubElement(source_elem, 'LocURI').text = source or self.server_id
+
+        # Add Cred element if MAC provided (server authentication)
+        if cred_mac:
+            cred = ET.SubElement(hdr, 'Cred')
+            meta = ET.SubElement(cred, 'Meta')
+            ET.SubElement(meta, 'Type').text = 'syncml:auth-MAC'
+            ET.SubElement(meta, 'Format').text = 'b64'
+            ET.SubElement(cred, 'Data').text = cred_mac
+
+        # Add Meta with NextNonce for client to use next time
+        if next_nonce:
+            meta = ET.SubElement(hdr, 'Meta')
+            ET.SubElement(meta, 'NextNonce').text = next_nonce
 
         return hdr
 

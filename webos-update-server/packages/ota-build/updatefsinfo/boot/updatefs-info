@@ -1,0 +1,5 @@
+# Update filesystem info for webOS 3.0.5 compatible update
+# Using existing ramdisk configuration since we're not modifying core system
+UPDATEFS_MD5=e3353dfe64ba3ada78d943d0f345b950
+UPDATEFS_INODES=640
+UPDATEFS_KB=11600

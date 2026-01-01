@@ -1,0 +1,10 @@
+Package: updatefsinfo
+Version: 3.0.5-test1
+Section: misc
+Priority: optional
+Architecture: all
+Installed-Size: 1
+Maintainer: webos-update-server <noreply@example.com>
+Description: Update filesystem info for OTA update.
+webOS-Package-Format-Version: 2
+webOS-Packager-Version: 3.0.5b38

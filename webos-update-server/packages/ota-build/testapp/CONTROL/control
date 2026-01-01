@@ -1,0 +1,10 @@
+Package: com.palm.updatetest
+Version: 1.0.0
+Section: misc
+Priority: optional
+Architecture: all
+Installed-Size: 1
+Maintainer: webos-update-server <noreply@example.com>
+Description: Test update package for OTA verification.
+webOS-Package-Format-Version: 2
+webOS-Packager-Version: 3.0.5b38
