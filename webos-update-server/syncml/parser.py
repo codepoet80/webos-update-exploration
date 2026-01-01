@@ -108,6 +108,9 @@ class SyncMLParser:
         """Parse SyncML ElementTree to message object"""
         msg = SyncMLMessage()
 
+        # Strip namespaces for easier parsing
+        root = self._strip_namespaces(root)
+
         # Find SyncHdr
         sync_hdr = root.find('.//SyncHdr')
         if sync_hdr is None:
@@ -127,6 +130,20 @@ class SyncMLParser:
             msg.is_final = sync_body.find('Final') is not None
 
         return msg
+
+    def _strip_namespaces(self, root: ET.Element) -> ET.Element:
+        """Remove namespaces from all elements for easier parsing"""
+        for elem in root.iter():
+            if '}' in elem.tag:
+                elem.tag = elem.tag.split('}', 1)[1]
+            # Also strip namespace from attributes
+            attrib = {}
+            for key, value in elem.attrib.items():
+                if '}' in key:
+                    key = key.split('}', 1)[1]
+                attrib[key] = value
+            elem.attrib = attrib
+        return root
 
     def _parse_header(self, hdr: ET.Element) -> SyncMLHeader:
         """Parse SyncHdr element"""

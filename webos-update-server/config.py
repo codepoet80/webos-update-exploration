@@ -7,6 +7,11 @@ from pathlib import Path
 HOST = "0.0.0.0"
 PORT = 8080
 DEBUG = True
+SESSION_TIMEOUT = 3600
+
+# Aliases for server.py compatibility
+SERVER_HOST = HOST
+SERVER_PORT = PORT
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -99,3 +104,15 @@ class AlertCode:
     CLIENT_EVENT = 1224
     NO_END_OF_DATA = 1225
     GENERIC_ALERT = 1226
+
+# Flat constants for server.py compatibility
+STATUS_OK = StatusCode.SUCCESS
+STATUS_AUTH_ACCEPTED = StatusCode.AUTH_ACCEPTED
+STATUS_CREDENTIALS_MISSING = StatusCode.MISSING_CREDENTIALS
+STATUS_ACCEPTED_FOR_PROCESSING = StatusCode.ACCEPTED_FOR_PROCESSING
+
+ALERT_CLIENT_INITIATED = AlertCode.CLIENT_INITIATED_MGMT
+ALERT_SERVER_INITIATED = 1200  # Server-initiated session
+ALERT_DISPLAY = AlertCode.DISPLAY
+ALERT_CONFIRM = AlertCode.CONFIRM_OR_REJECT
+ALERT_USER_INPUT = AlertCode.TEXT_INPUT

@@ -58,7 +58,7 @@ if command -v novacom &> /dev/null; then
     echo ""
 
     # Check device connection
-    if ! novacom -l 2>/dev/null | grep -q "device"; then
+    if ! novacom -l 2>/dev/null | grep -q "topaz"; then
         echo "ERROR: No device found. Please connect your TouchPad via USB."
         rm "${TEMP_DMTREE}"
         exit 1
@@ -68,19 +68,19 @@ if command -v novacom &> /dev/null; then
 
     # Remount root filesystem as read-write
     echo "Remounting filesystem as read-write..."
-    novacom run -- "mount -o remount,rw /"
+    echo "mount -o remount,rw /" | novacom run file://bin/sh
 
     # Backup original DmTree.xml
     echo "Backing up original DmTree.xml..."
-    novacom run -- "cp ${DMTREE_DEST} ${DMTREE_DEST}.backup" 2>/dev/null || true
+    echo "cp ${DMTREE_DEST} ${DMTREE_DEST}.backup" | novacom run file://bin/sh 2>/dev/null || true
 
     # Copy modified DmTree.xml
     echo "Copying modified DmTree.xml..."
-    novacom put "file://${DMTREE_DEST}" < "${TEMP_DMTREE}"
+    novacom put file://${DMTREE_DEST} < "${TEMP_DMTREE}"
 
     # Remount as read-only
     echo "Remounting filesystem as read-only..."
-    novacom run -- "mount -o remount,ro /"
+    echo "mount -o remount,ro /" | novacom run file://bin/sh
 
     echo ""
     echo "Deployment complete!"
@@ -146,7 +146,7 @@ echo ""
 echo "3. The device should now connect to your local server"
 echo ""
 echo "To restore original configuration:"
-echo "   novacom run -- 'mount -o remount,rw /'"
-echo "   novacom run -- 'cp ${DMTREE_DEST}.backup ${DMTREE_DEST}'"
-echo "   novacom run -- 'mount -o remount,ro /'"
+echo "   echo 'mount -o remount,rw /' | novacom run file://bin/sh"
+echo "   echo 'cp ${DMTREE_DEST}.backup ${DMTREE_DEST}' | novacom run file://bin/sh"
+echo "   echo 'mount -o remount,ro /' | novacom run file://bin/sh"
 echo ""

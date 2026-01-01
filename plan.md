@@ -302,3 +302,111 @@ From extracted webOS rootfs:
    - Verify server receives valid SyncML
    - Confirm device downloads package
    - Test actual update installation (use safe test package first)
+
+---
+
+## Current Status (2025-12-31)
+
+### Completed
+
+- **Phase 1: Core Infrastructure** - COMPLETE
+  - FastAPI server running on port 8080
+  - WBXML decoder/encoder implemented
+  - Request logging and capture working
+
+- **Phase 2: SyncML Protocol** - PARTIAL
+  - SyncML message parser working (with namespace stripping fix)
+  - SyncML response builder working
+  - Session state management implemented
+  - HMAC-MD5 authentication: **NOT YET WORKING**
+
+- **Phase 3: OMA DM Logic** - PARTIAL
+  - DM tree GET/REPLACE operations implemented
+  - Update availability logic implemented
+  - Package URL and metadata configured
+  - EXEC for DownloadAndInstall implemented
+
+- **Phase 4: Package Hosting** - COMPLETE
+  - Package download endpoint working
+  - Range request support for resumable downloads
+  - Package manifest generation
+
+- **Phase 5: Device Integration** - PARTIAL
+  - Modified DmTree.xml created
+  - Deploy script fixed (novacom syntax)
+  - Device successfully connects to server
+  - **Authentication failing (407/401 status)**
+
+### Key Discovery: Multiple DmTree.xml Locations
+
+The device has THREE locations where DmTree.xml exists:
+
+| File | Purpose | Writeable |
+|------|---------|-----------|
+| `/usr/share/omadm/DmTree.xml` | Source/template | No (read-only /) |
+| `/var/lib/software/DmTree.xml` | Runtime config (used by OmaDm) | Yes |
+| `/var/lib/software/DmTree.backup.xml` | Backup (OmaDm regenerates from this) | Yes |
+
+**Important**: OmaDm reads from `/var/lib/software/DmTree.xml` at runtime, NOT from `/usr/share/omadm/DmTree.xml`. If only the `/usr/share/` version is modified, OmaDm will still use the old Palm URL.
+
+### Fixes Applied
+
+1. **deploy.sh novacom syntax** - Changed from broken `novacom run -- "cmd"` to working `echo "cmd" | novacom run file://bin/sh`
+
+2. **SyncML parser namespace handling** - Added `_strip_namespaces()` method to handle `xmlns='SYNCML:SYNCML1.2'` namespace in XML
+
+3. **config.py missing constants** - Added `SESSION_TIMEOUT`, `SERVER_HOST`, `SERVER_PORT`, and flat `STATUS_*`/`ALERT_*` constants
+
+---
+
+## Next Steps
+
+### Immediate Priority: Fix HMAC-MD5 Authentication
+
+The device is connecting but rejecting the server's response with status codes:
+- **407** for SyncHdr (authentication rejected)
+- **401** for commands (unauthorized)
+
+The server must properly implement HMAC-MD5 authentication:
+
+1. **Parse incoming HMAC header** from device request:
+   ```
+   x-syncml-hmac: algorithm=MD5, username=guest, mac=<base64-digest>
+   ```
+
+2. **Verify device's HMAC** using:
+   - Algorithm: HMAC-MD5
+   - Key: `guestpassword` (hardcoded guest password)
+   - Data: Message body (WBXML bytes)
+
+3. **Generate server HMAC** for response:
+   - Include `x-syncml-hmac` header in response
+   - Use device's nonce if provided, or generate new one
+
+4. **Return proper status code**:
+   - 212 = Authentication accepted
+   - 401 = Unauthorized (wrong credentials)
+   - 407 = Authentication required
+
+### Files to Modify
+
+- `syncml/auth.py` - Implement proper HMAC verification and generation
+- `server.py` - Integrate authentication into request/response flow
+
+### Testing Authentication
+
+1. Start server: `python server.py`
+2. On device, update all DmTree files:
+   ```bash
+   # Via novacom
+   echo "sed -i 's|https://ps.palmws.com|http://192.168.10.20:8080|g' /var/lib/software/DmTree.xml" | novacom run file://bin/sh
+   echo "sed -i 's|https://ps.palmws.com|http://192.168.10.20:8080|g' /var/lib/software/DmTree.backup.xml" | novacom run file://bin/sh
+   ```
+3. Run OmaDm manually: `echo '/usr/bin/OmaDm' | novacom run file://bin/sh`
+4. Check server logs for HMAC header and verify authentication flow
+
+### After Authentication Works
+
+- Test full update flow with a safe test package
+- Verify device downloads package from server
+- Test actual update installation
