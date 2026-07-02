@@ -1,0 +1,43 @@
+.otaready .body {
+    padding: 18px 20px 28px 20px;
+    max-width: 760px;
+    margin: 0 auto;
+}
+
+.otaready .status-box {
+    font-size: 26px;
+    line-height: 1.35;
+    margin-bottom: 18px;
+}
+
+.otaready .advice-box {
+    font-size: 20px;
+    line-height: 1.5;
+    color: #222;
+    background: #f4f4f4;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 24px;
+}
+
+.otaready .detail-hdr {
+    font-size: 16px;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #888;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+}
+
+.otaready .detail-box {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #555;
+    font-family: monospace;
+    white-space: normal;
+}
+
+.otaready-toolbar .enyo-button-affirmative {
+    font-weight: bold;
+}

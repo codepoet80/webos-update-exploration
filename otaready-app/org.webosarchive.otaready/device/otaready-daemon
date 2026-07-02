@@ -1,0 +1,110 @@
+#!/bin/sh
+# otaready-daemon — root helper for the "Get Ready for OTA" app.
+#
+# The jailed Enyo apps cannot read system state or write system files, so this root
+# daemon does both and bridges through /media/internal/.otaready/ (visible in the jail):
+#   - writes status.json  (fingerprint, for the Get-Ready app)      [Part 1]
+#   - writes offer.json    (our server's offer, for System Updates)  [Part 2]
+#   - honors commands dropped in `cmd`: check | redirect | revert | install
+#
+# Commands are triggered by the apps (via the otaready JS service, which can write cmd).
+
+DIR=/media/internal/.otaready
+STATUS="$DIR/status.json"
+OFFER="$DIR/offer.json"
+CMD="$DIR/cmd"
+FP=/usr/bin/ota-fingerprint
+LOG=/var/log/otaready-daemon.log
+REFRESH_EVERY=15   # seconds
+
+# our update server (override by writing a URL into $DIR/server-url)
+SERVER_DEFAULT="http://192.168.10.20:8080"
+
+# System Updates app + our patched copy
+SU_JS=/usr/palm/applications/com.palm.app.updates/app/UpdatesApp.js
+SU_BAK="$SU_JS.otaready-orig"
+PATCHED=/media/cryptofs/apps/usr/palm/applications/org.webosarchive.otaready/device/UpdatesApp.patched.js
+
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') otaready: $*" >> "$LOG" 2>&1; }
+server_url() { [ -f "$DIR/server-url" ] && tr -d ' \t\r\n' < "$DIR/server-url" || echo "$SERVER_DEFAULT"; }
+
+luna_restart() {
+    # reload cached Enyo apps after swapping UpdatesApp.js
+    log "restarting LunaSysMgr"
+    killall LunaSysMgr 2>/dev/null || true   # upstart respawns it
+}
+
+refresh_status() {
+    if /bin/sh "$FP" --json > "$STATUS.tmp" 2>/dev/null; then
+        mv "$STATUS.tmp" "$STATUS"
+    else
+        rm -f "$STATUS.tmp"; log "fingerprint failed"
+    fi
+}
+
+# Produce offer.json in the native UpdatesApp payload shape.
+#   - test override: if $DIR/test-offer.json exists, use it verbatim (for on-device UI tests)
+#   - otherwise ask our server /api/updates/plan for this device's baseline
+make_offer() {
+    if [ -f "$DIR/test-offer.json" ]; then
+        cp "$DIR/test-offer.json" "$OFFER"
+        return
+    fi
+    baseline=$(grep -o '"verdict":"[A-Z]*"' "$STATUS" 2>/dev/null | head -1 | cut -d'"' -f4)
+    [ -z "$baseline" ] && baseline=UNKNOWN
+    url="$(server_url)/api/updates/plan?baseline=$baseline"
+    resp=$(curl -s -m 15 "$url" 2>/dev/null)
+    # Available only if the plan has at least one auto-deliver package that is hosted.
+    if echo "$resp" | grep -q '"deliver"' && echo "$resp" | grep -q '"hosted":\["'; then
+        ver=$(echo "$resp" | grep -o '"title":"[^"]*"' | head -1 | cut -d'"' -f4)
+        [ -z "$ver" ] && ver="webOS Community Update"
+        printf '{"status":"Available","version":"%s","size":"5","installTime":"5","networkAvailable":true,"priority":"optional"}\n' "$ver" > "$OFFER"
+    else
+        printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
+    fi
+}
+
+apply_patch() {   # redirect: make System Updates use our server
+    if [ ! -f "$PATCHED" ]; then log "patched UpdatesApp.js missing at $PATCHED"; return 1; fi
+    mount -o rw,remount / 2>/dev/null || true
+    [ -f "$SU_BAK" ] || cp -p "$SU_JS" "$SU_BAK"
+    cp "$PATCHED" "$SU_JS"
+    chmod 644 "$SU_JS"
+    echo '{"status":"applied"}' > "$DIR/redirect-result.json"
+    log "applied UpdatesApp.js reroute (backup: $SU_BAK)"
+    luna_restart
+}
+
+revert_patch() {  # revert: restore the stock System Updates app
+    mount -o rw,remount / 2>/dev/null || true
+    if [ -f "$SU_BAK" ]; then
+        cp -p "$SU_BAK" "$SU_JS"; rm -f "$SU_BAK"
+        echo '{"status":"reverted"}' > "$DIR/redirect-result.json"
+        log "reverted UpdatesApp.js"
+        luna_restart
+    else
+        log "no backup to revert"
+    fi
+}
+
+mkdir -p "$DIR"
+log "started (pid $$)"
+refresh_status
+make_offer
+count=0
+while true; do
+    if [ -f "$CMD" ]; then
+        c=$(tr -d ' \t\r\n' < "$CMD" 2>/dev/null); rm -f "$CMD"
+        case "$c" in
+            check)    log "cmd: check";    refresh_status; make_offer ;;
+            redirect) log "cmd: redirect"; apply_patch ;;
+            revert)   log "cmd: revert";   revert_patch ;;
+            install)  log "cmd: install (direct-update flow — TODO increment 3)" ;;
+            "")       : ;;
+            *)        log "cmd: unknown ($c)" ;;
+        esac
+    fi
+    count=$((count + 1))
+    if [ "$count" -ge "$REFRESH_EVERY" ]; then refresh_status; make_offer; count=0; fi
+    sleep 1
+done

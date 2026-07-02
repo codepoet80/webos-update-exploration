@@ -1,0 +1,68 @@
+{
+  "policy_version": "1.0",
+  "description": "Per-baseline OTA eligibility for the HP TouchPad (Topaz) update server. Keyed on the device fingerprint (device-scripts/fingerprint.sh), NEVER on build number (all baselines report build 86; LunaCE/pollution make it unreliable).",
+
+  "gates": {
+    "comment": "Universal preconditions evaluated from the fingerprint VERDICT. If the verdict is any of these, NO package is delivered — the whole plan is empty.",
+    "refuse_verdicts": {
+      "UNSUPPORTED": "Wrong product (BUILDNAME != Nova-HP-Topaz — e.g. TouchPad Go/Nova-Dubonnet, AT&T 4G/Nova-ATT-Topaz). Different hardware and base image. NEVER push.",
+      "HAZARD": "Supported Topaz but unsafe state: a custom community kernel (org.webosinternals.kernels.*, e.g. UberKernel) is installed. Our OTA rewrites /boot/uImage and post-update reverts to the stock kernel, which would clobber it. Do not push.",
+      "UNKNOWN": "Topaz, but not a defined baseline (undefined L/T/Q combo) or an unrecognized LunaSysMgr build. Hold for manual review; do not push."
+    }
+  },
+
+  "capabilities_from_fingerprint": {
+    "comment": "Which capability a device already HAS, derived from the fingerprint axes L/T/Q.",
+    "modern_tls": "T == 1  (private /usr/lib/ssl11 TLS 1.2/1.3 stack present)",
+    "modern_browser": "Q == 1  (nizovn Qt5 / com.nizovn.qupzilla present)",
+    "lunace_launcher": "L == 1  (LunaCE LunaSysMgr present)"
+  },
+
+  "evidence_watch": {
+    "comment": "Logged by the fingerprint; does not gate on its own, but flagged per-package for conflict review.",
+    "optware_openssl": "mobi.optware.openssl — vestigial /opt-only 0.9.8. Owns no /usr files, not in the linker path, no ipkg Conflicts. Harmless to our OTA; no action.",
+    "ausmt_patches": "org.webosinternals.patches.* — warn-and-log. A patch that edits a file one of our packages also ships is a conflict risk; see each package's conflict_watch."
+  },
+
+  "packages": [
+    {
+      "id": "tls13-stack",
+      "title": "Community TLS 1.3 stack",
+      "provides": "modern_tls",
+      "auto": true,
+      "eligibility": { "needs_capability": "modern_tls" },
+      "members": ["org.webosinternals.browser-tls13", "org.webosinternals.luna-tls13", "org.webosinternals.curl-tls13", "com.palm.rootcertsupdate", "org.webosinternals.ntpdate-sync"],
+      "conflict_watch": ["org.webosinternals.patches.browser-*"],
+      "notes": "Core modernization: private /usr/lib/ssl11 stack + current root certs + clock sync. Low-risk (leaves system OpenSSL untouched). Delivered to devices that LACK modern TLS (T==0): baselines C and D."
+    },
+    {
+      "id": "openssl-1.0.2u",
+      "title": "Legacy system OpenSSL swap (0.9.8k -> 1.0.2u)",
+      "provides": "modern_tls",
+      "auto": false,
+      "eligibility": { "never": true },
+      "status": "DEPRECATED",
+      "members": ["openssl-update"],
+      "notes": "Replaces the SYSTEM libssl/libcrypto that 15+ components link against -> boot/brick risk (openssl-update-plan.md). Superseded by the private ssl11 stack, which the community adopted instead. Kept as packages/openssl-update_1.0.2u-1_armv7.off for reference only; NEVER delivered to any baseline."
+    },
+    {
+      "id": "qupzilla-browser",
+      "title": "QupZilla modern browser (nizovn Qt5)",
+      "provides": "modern_browser",
+      "auto": false,
+      "eligibility": { "needs_capability": "modern_browser" },
+      "members": ["com.nizovn.qupzilla", "com.nizovn.qt5sdk", "com.nizovn.qt5", "com.nizovn.glibc", "com.nizovn.openssl", "com.nizovn.cacert"],
+      "notes": "OPT-IN enhancement, not auto-pushed. Heavy (Qt5 + glibc stack). Candidate offer for devices lacking a modern browser (Q==0: baselines B, D, E). Product decision pending."
+    },
+    {
+      "id": "lunace-launcher",
+      "title": "LunaCE launcher",
+      "provides": "lunace_launcher",
+      "auto": false,
+      "eligibility": { "needs_capability": "lunace_launcher" },
+      "members": ["(LunaSysMgr swap)"],
+      "conflict_watch": ["luna-tls13 launcher edit (documented brick when combined)"],
+      "notes": "OPT-IN only, never auto-pushed. Swaps /usr/bin/LunaSysMgr; documented brick when stacked with the ssl11 launcher edit. Candidate offer for L==0 devices (B, D). Requires standalone per-device testing; product decision pending."
+    }
+  ]
+}

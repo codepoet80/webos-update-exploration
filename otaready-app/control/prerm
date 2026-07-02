@@ -1,0 +1,15 @@
+#!/bin/sh
+# prerm — runs as ROOT before the package is removed. Reverses postinst.
+mount -o rw,remount / 2>/dev/null || true
+
+stop otaready-daemon 2>/dev/null || true
+
+rm -f /usr/bin/ota-fingerprint
+rm -f /usr/bin/otaready-daemon
+rm -f /etc/event.d/otaready-daemon
+
+# leave the last status.json (harmless, user-visible); clear only the control channel
+rm -f /media/internal/.otaready/cmd /media/internal/.otaready/redirect-result.json
+
+echo "otaready: removed helper + daemon"
+exit 0

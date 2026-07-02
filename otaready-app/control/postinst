@@ -1,0 +1,27 @@
+#!/bin/sh
+# postinst — runs as ROOT via Preware / WebOS Quick Install (NOT palm-install).
+# Installs the fingerprint helper + root status daemon into system space.
+set -e
+
+APP=/media/cryptofs/apps/usr/palm/applications/org.webosarchive.otaready
+
+# root fs is normally rw on the TouchPad; remount defensively for /usr and /etc writes
+mount -o rw,remount / 2>/dev/null || true
+
+# fingerprint helper (read-only device inspection) + status daemon
+cp "$APP/device/ota-fingerprint" /usr/bin/ota-fingerprint
+cp "$APP/device/otaready-daemon" /usr/bin/otaready-daemon
+chmod 755 /usr/bin/ota-fingerprint /usr/bin/otaready-daemon
+
+# upstart job so the daemon starts on boot
+cp "$APP/device/otaready-daemon.conf" /etc/event.d/otaready-daemon
+chmod 644 /etc/event.d/otaready-daemon
+
+# status directory the app reads from (inside the app jail this maps to /media/internal)
+mkdir -p /media/internal/.otaready
+
+# start now so the app has status without waiting for a reboot
+start otaready-daemon 2>/dev/null || echo "otaready-daemon will start on next boot"
+
+echo "otaready: installed helper + daemon"
+exit 0

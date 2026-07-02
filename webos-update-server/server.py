@@ -20,6 +20,7 @@ from syncml import SyncMLParser, SyncMLBuilder, HMACAuth, SessionManager, Sessio
 from syncml.builder import StatusBuilder, ItemBuilder
 from syncml.parser import SyncMLMessage
 from dm import DMTree, UpdateManager
+from dm.eligibility import resolve as resolve_eligibility, parse_oneline, load_policy
 
 # Configure logging
 logging.basicConfig(
@@ -39,6 +40,7 @@ app = FastAPI(
 session_manager = SessionManager(session_timeout=config.SESSION_TIMEOUT)
 update_manager = UpdateManager(config.PACKAGES_DIR)
 auth_handler = HMACAuth()
+elig_policy = load_policy()
 
 
 def get_client_ip(request: Request) -> str:
@@ -652,6 +654,60 @@ async def check_updates_direct(build: str = "", swv: str = ""):
         "packageCount": len(all_packages),
         "packages": all_packages
     })
+
+
+@app.get("/api/updates/plan")
+async def update_plan(
+    baseline: str = "",
+    fingerprint: str = "",
+    L: Optional[int] = None,
+    T: Optional[int] = None,
+    Q: Optional[int] = None,
+):
+    """
+    Fingerprint-driven eligibility plan — the replacement for /api/updates/check,
+    which keyed on the unreliable build number (all baselines report build 86).
+
+    Provide either:
+      - fingerprint=<the fingerprint.sh --oneline string>, or
+      - baseline=A|B|C|D|E|UNSUPPORTED|HAZARD|UNKNOWN   (+ optional L,T,Q)
+
+    Returns the plan: `deliver` (auto-push), `offer` (opt-in), `skipped`, or a
+    `refused` verdict (UNSUPPORTED/HAZARD/UNKNOWN) with an empty plan.
+    """
+    if fingerprint:
+        fp = parse_oneline(fingerprint)
+    elif baseline:
+        fp = {"baseline": baseline}
+        for k, v in (("L", L), ("T", T), ("Q", Q)):
+            if v is not None:
+                fp[k] = v
+    else:
+        return JSONResponse(
+            {"status": "error", "message": "provide fingerprint= or baseline="},
+            status_code=400,
+        )
+
+    plan = resolve_eligibility(fp, elig_policy)
+    logger.info(
+        "Eligibility: baseline=%s refused=%s deliver=%s"
+        % (plan["baseline"], plan["refused"], [e["id"] for e in plan["deliver"]])
+    )
+
+    # Annotate delivered/offered packages with which member .ipk files are actually
+    # hosted on this server vs. still need to be added to packages/.
+    if not plan["refused"]:
+        hosted = {p.name for p in update_manager.packages.values()}
+        members_by_id = {pk["id"]: pk.get("members", []) for pk in elig_policy["packages"]}
+        for entry in plan["deliver"] + plan["offer"]:
+            members = members_by_id.get(entry["id"], [])
+            entry["members"] = members
+            entry["hosted"] = [m for m in members if m in hosted]
+            entry["missing_from_server"] = [
+                m for m in members if m not in hosted and not m.startswith("(")
+            ]
+
+    return JSONResponse({"status": "ok", "plan": plan})
 
 
 @app.get("/api/updates/urls")
