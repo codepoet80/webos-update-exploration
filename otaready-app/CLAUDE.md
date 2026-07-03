@@ -28,7 +28,8 @@ system state or write system files.
    org.webosarchive.otaready.service  ──writes cmd──►  otaready-daemon (root, upstart)
                                                         │  polls .otaready/cmd every 1s
         /usr/bin/ota-fingerprint --json ◄──────────────┤  runs as root:
-        /usr/bin/ota-direct-update  ◄──────────────────┘  cmd: check | redirect(apply patch) | revert | install
+        /usr/bin/ota-direct-update  ◄──────────────────┘  cmd: check | redirect(apply patch) | revert | install | reset
+                                                          fetches the offer from https://swupdate.webosarchive.org/api/updates/offer
 ```
 
 - **`org.webosarchive.otaready.service`** (node JS service) is the app→daemon bridge: jailed Enyo
@@ -54,9 +55,25 @@ system state or write system files.
   delivered this cycle; `rm` or a fresh `redirect` re-arms), `test-offer.json` → forced demo offer.
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
-## Status (2026-07-03)
+## Status (2026-07-03) — BETA IS LIVE
 
-### Working / proven on hardware (Device A)
+**End-to-end validated on a fresh device via the real Museum path (device E, 2026-07-03).**
+The whole chain works for actual users now: **install "OTA Ready" from App Museum II (Preware) →
+postinst sets up the daemon + bridge service → app reads status → "Use New Update Server" patches
+System Updates → the server-hosted offer flows in → Install**. This is the graduation from
+"proven-via-luna-send on Device A" to "works on hardware through the distribution users will use."
+
+- **Production server is live**: `https://swupdate.webosarchive.org` (FastAPI on the user's host,
+  `systemctl` service, git-to-deploy, valid TLS). Serves the single canonical offer at
+  `/api/updates/offer` from `offer.json` (edit + git push to change what all devices are offered).
+- **App is published to App Museum II** as **"OTA Ready"** (self-update check keys off that exact
+  name). Museum candidate build: **v1.1.11**.
+- **Confirm next session:** whether the *armed flash* (`arm-install` → reboot into OTA ramdisk →
+  install → reboot-back) actually ran in the device-E e2e, or if e2e went through the offer/prepare
+  stage. That's the one step never separately confirmed on hardware. (User said "all went well" but
+  didn't break down the armed-flash detail.)
+
+### Earlier milestones proven on Device A
 - **Part 2 display reroute WORKS end-to-end.** Stock System Updates renders our offer:
   *"Installation of webOS Community Update 1.0 will take about 5 minutes"* + **Install Now**,
   with zero contact with Palm's servers. Verified on Device A.
@@ -83,12 +100,19 @@ system state or write system files.
   the redirect deliberately restarts Luna to reload the patched System Updates app. The abrupt
   restart with no warning previously read as a crash.
 
-### Broken / incomplete
-- **UI buttons not yet human-verified.** The plumbing (bridge service, daemon actions, cache-bust)
-  is all proven via luna-send, but the two on-device buttons still need a swipe-close+reopen test
-  (lesson #5): Get Ready's "Use New Update Server" (dialog → `redirect`) and System Updates'
-  "Install Now" (`otareadyInstall()` → `install`). With TODO #4 fixed, System Updates should now
-  load the patched code after a redirect.
+### Remaining / to confirm
+- **Armed flash on hardware** — confirm/record whether the real `arm-install` flash completed in the
+  device-E e2e (see status banner). It's the only step never separately verified on hardware.
+- **No real OTA payload yet.** The server hosts *test* packages (`updatetest`, `updatefsinfo`) +
+  the openssl `.off`. The offer content is a placeholder ("webOS Community OTA Test 0.1"). The
+  intended real payload is the **LunaCE launcher update**. Before broad release, know exactly what the
+  flashed packages do to the rootfs.
+- **"Forgot to reboot" UX** (user flagged as a real beta hazard): after a first Museum install the app
+  shows status fine, but the first *action* ("Use New Update Server", Install, Reset, Save) fails with
+  "Couldn't reach the OTA Ready helper service… reboot once" until the one-time reboot (see lesson #11).
+  Worth making that clearer / prompting the reboot.
+- **No user-facing `revert`.** The daemon can un-patch System Updates (`revert` cmd) but there's no
+  button; a stuck tester has no exit but Doctor. Consider exposing it or documenting it.
 
 ## Hard-won on-device lessons (do not relearn these)
 
@@ -126,6 +150,22 @@ system state or write system files.
    a silent failure (no response printed over novacom either — that's cosmetic). The app-side
    PalmService is async (onSuccess/onFailure) so it waits correctly. To test from a shell, background
    the call and give it a few seconds; confirm via `/var/log/messages` (service `console.log`s land there).
+11. **App Museum II (Preware) DOES run our postinst** — VERIFIED on hardware. Installing "OTA Ready"
+   from the Museum sets up the daemon + helpers + LS2 files exactly like a manual postinst run. The
+   **first-install reboot is only for the bridge service**: State 1 (status display, offer viewing) is
+   pure file-reading and works immediately; the first thing that *calls* the service (redirect / install /
+   reset / save) fails until one reboot registers it with ls-hubd. One-time; survives upgrades+reboots after.
+12. **The OTA delivers OTHER content, NOT TLS 1.3.** (Corrected mid-session — don't re-derive the wrong
+   model.) Eligibility is an **exclusion gate**, not per-baseline delivery: every device gets the same
+   single offer UNLESS its fingerprint rules it out (`ready:false` = custom kernel / unsupported model /
+   unrecognised config). TLS matters only because a no-TLS device can't reach the HTTPS server AND is
+   `ready:false` anyway. The offer is **server-hosted** (`GET /api/updates/offer`, one `offer.json` the
+   admin git-pushes); the daemon serves it verbatim, gated locally by the fingerprint.
+13. **Ship the PRODUCTION server default.** The daemon's `SERVER_DEFAULT` was a dead LAN IP
+   (`192.168.10.20:8080`) for ages; a fresh Museum device couldn't reach anything → stuck State 2 +
+   UpToDate. It's now `https://swupdate.webosarchive.org`. A `/media/internal/.otaready/server-url`
+   file still overrides it per-device (for LAN dev). Local `test-offer.json` also overrides the server
+   offer — handy for demos, but it MASKS the real server path, so remove it to test end-to-end.
 
 ## Build & install
 
@@ -138,93 +178,86 @@ system state or write system files.
 #   reboot                # ONLY on the FIRST install of the bridge service (ls-hubd role cache; see lesson #9)
 ```
 
-## Running the update server locally (there is no prod server — we ARE it)
+## The update server (`../webos-update-server`, FastAPI)
 
-The daemon/app talk to `../webos-update-server` (FastAPI). To run it on this dev box:
+**Production is live** at `https://swupdate.webosarchive.org` (user's host, `systemctl` service,
+git-to-deploy → whatever we commit reaches it). Matches Palm's old `omadm.swupdate.palm.com` label.
+Config is a file, not env vars: `otaserver.conf` (searched `/etc/` then repo; see `DEPLOY.md`).
 
+- **Change the offer for everyone:** edit `offer.json` (one file), git push. `/api/updates/offer`
+  reads it per-request (no restart needed). `{"status":"UpToDate"}` withdraws it.
+- **Health/monitoring:** `GET /health` (liveness), `GET /api/stats` (per-device traffic: build,
+  baseline, checks, downloads, last-seen). Both are unauthenticated — allowlist if that matters.
+- **Endpoints the daemon uses:** `/api/updates/offer` (the offer), `/api/updates/check?build=` +
+  `/packages/*` (the direct-update install flow). `/api/updates/plan?baseline=` still exists
+  (eligibility) but the daemon no longer uses it for the offer.
+
+Run it locally for LAN dev (this box has no pip/venv → bootstrap into scratchpad):
 ```bash
-# one-time: this host has no pip/venv, so bootstrap into scratchpad
 python3 -m venv --without-pip <venv>
 curl -sS https://bootstrap.pypa.io/get-pip.py | <venv>/bin/python
 <venv>/bin/pip install -r ../webos-update-server/requirements.txt
-# run (binds 0.0.0.0:8080; access log shows each device request):
 cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port 8080
 ```
+Point a device at the LAN instance by writing its URL into `/media/internal/.otaready/server-url`
+(overrides the production default). `config.py` auto-detects the LAN IP when `[public] host` is blank.
 
-- `config.py` `SERVER_URL` now **auto-detects this host's LAN IP** (was hardcoded to .20) so the
-  download URLs it hands the device are reachable; override with the `SERVER_URL` env var.
-- Point a device at it: write the URL into `/media/internal/.otaready/server-url` on the device
-  (this dev host was `192.168.10.45`, the TouchPad was `192.168.10.41` — both may change via DHCP).
-- Endpoints exercised: `/api/updates/plan?baseline=<X>` (daemon offer check),
-  `/api/updates/check` + `/urls` + `/session-files` (direct-update/install flow).
+## The app (v1.1.11, "OTA Ready (Beta)"; App Museum name "OTA Ready")
 
-## Device A current state (leftover from testing — REVERT when done)
+- **3-state model** for a READY device (from `server-state.json`): 1 not-redirected (show "Use New
+  Update Server") · 2 redirected/awaiting-server · 3 redirected+contacted (last check + result).
+- **App Menu** (swipe top-left): **Reset OTA Test** (`reset` → daemon rm `.installed`, re-arm offer),
+  **Save Device Details** (`saveDetails` → copies `diagnostics.txt` to `/media/internal/OTAReady-DeviceDetails.txt`
+  + `enyo.windows.addBannerMessage`, for users without email), **Send Device Details** (emails
+  curator@webosarchive.org via com.palm.app.email). No "Check for Updates" item — see next.
+- **Self-update on launch:** `source/Updater-Helper.js` (`Helpers.Updater`, from webOSArchive/webos-common)
+  checks `appcatalog.webosarchive.org` with name **"OTA Ready"** vs installed `#.#.#`; if newer, pops
+  "Update Now / Later" → installs via Preware. Silent until published; existing testers self-update.
+- **Patched System Updates** (`UpdatesApp.patched.js`, applied by `redirect`): reads `offer.json`, has
+  the "undefined minutes" fix + the deliver→UpToDate lifecycle (`.installed` marker → "no more updates").
+- **Icon:** `tools/make_icon.py` renders 3 sizes (48/64/256) — gift (from `updates.png`, platform
+  auto-removed) over a green arrow on a glossy circle.
 
-- **`com.palm.app.updates` is PATCHED in place** on rootfs: `app/UpdatesApp.js` = our reroute,
-  stock JS saved to `app/UpdatesApp.js.otaready-orig`, stock appinfo saved to
-  `appinfo.json.otaready-orig` (captured at **1.1.2**, since the manual bump predates the backup;
-  true stock is 1.1.0). `appinfo.json` version now climbs +1 per redirect (currently **1.1.3**).
-  **To revert:** run the daemon's `revert` (restores JS + appinfo from the `.otaready-orig` backups),
-  or manually restore both `.otaready-orig` files and `killall LunaSysMgr`.
-- **`org.webosarchive.otaready` v1.1.1 installed** (titled "OTA Ready"); daemon + `/usr/bin/ota-fingerprint`
-  + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
-- **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
-  `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.11 (Museum candidate); v1.1.10 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
-  build. OTA Ready shows the **3-state model**, runs an **App Museum II self-update check on launch**
-  (see below), and has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge `reset` →
-  daemon rm `.installed`, re-offers), **Save Device Details** (bridge `saveDetails` copies
-  `diagnostics.txt` → `/media/internal/OTAReady-DeviceDetails.txt`, then `enyo.windows.addBannerMessage`
-  "Details saved: …" — for users without email), and **Send Device Details** (emails to
-  curator@webosarchive.org via com.palm.app.email).
-- **Self-update:** `source/Updater-Helper.js` (`Helpers.Updater`, synced from webOSArchive/webos-common)
-  checks `appcatalog.webosarchive.org` on launch with App Museum name **"OTA Ready"** vs the installed
-  `#.#.#` version; if newer, it pops "Update Now / Later" and installs the IPK via Preware. Silent/graceful
-  until the app is published (museum currently returns `{"error":"No matching app found for ota ready"}`).
-  System Updates patch (SU appinfo ~1.1.8) has the "undefined minutes" fix + deliver→UpToDate lifecycle.
-  Daemon writes `diagnostics.txt` each poll and only logs offer changes (was one line/poll).
-- **Now pointed at the LOCAL live server**, not the forced demo:
-  - `/media/internal/.otaready/server-url` = `http://192.168.10.45:8080` (override; daemon default is still .20).
-  - `test-offer.json` renamed to `test-offer.json.bak` (the forced-Available demo is DISABLED so
-    make_offer calls the live server). `offer.json` now = live result = `{"status":"UpToDate"}` (correct for baseline A).
-  - **To restore the forced-Available UI demo:** `mv test-offer.json.bak test-offer.json` (and optionally
-    `rm server-url` to go back to the .20 default).
-- `install-status.json` = `{"status":"uptodate"}` left from the handoff test (harmless).
+## Test-device leftover state to clean up (REVERT when done)
 
-## What's left (TODO, roughly in order)
+- **Device A** (`c931ddf8…`): `com.palm.app.updates` still **PATCHED in place** (our reroute; stock
+  saved as `UpdatesApp.js.otaready-orig` + `appinfo.json.otaready-orig`). Revert: daemon `revert` cmd
+  (restores both from backups + Luna restart), or restore manually. Old app builds installed.
+- **Museum-test device** (`e516be7b…`, baseline B): freshly cleaned then re-installed 1.1.11 from the
+  Museum; leftover local `test-offer.json`/`server-url` were removed so it fetches the real server offer.
+- **Device E**: the e2e success device (fresh Museum install → full flow).
+- Local overrides that mask the real server, if present on any device: `/media/internal/.otaready/`
+  `test-offer.json` (forces a demo offer), `server-url` (points elsewhere), `.installed` (→ UpToDate),
+  `arm-install` (arms the real flash). Remove to test the true production path.
 
-1. ~~Verify Part 1 theming/UI on device~~ **DONE** — v1.0.3 confirmed looking right on Device A (2026-07-03).
-2. ~~Replace the placeholder icon~~ **DONE** — final icon (v1.1.10): glossy dark circle with the
-   stock System Updates **gift** (composited from `org.webosarchive.otaready/updates.png`, its grey
-   platform auto-knocked-out) above a green download arrow + white slot. `tools/make_icon.py`
-   generates **3 sizes** — `icon.png` (64), `images/header-icon-otaready.png` (48),
-   `icon-256x256.png` (256, also appinfo `splashicon`) — drawing the circle/arrow on a 2048px master
-   and compositing the gift at each output's native size. App title "OTA Ready (Beta)".
-3. ~~Build the Install handoff (Part 2)~~ **DONE** (v1.1.0, plumbing verified via luna-send) —
-   JS bridge service + daemon `install`/`do_install` (direct-update prep, `arm-install`-gated
-   flash) + `install-status.json` feedback. Patched `otareadyInstall()` calls the service and polls
-   status. On reboot-back the app still handles `updateSuccessful`. STILL TODO here: (a) human UI
-   test of the "Install Now" button (needs #4 so the new patched code actually loads); (b) real
-   armed flash once packages are hosted (#5).
-4. ~~Fix the daemon's `redirect`/`apply_patch` to cache-bust~~ **DONE** (v1.1.1, verified on
-   Device A 2026-07-03) — `apply_patch` now backs up + bumps `com.palm.app.updates`' appinfo
-   version by +1 on every apply (`bump_su_version`), so the Luna restart actually drops the cached
-   `UpdatesApp.js` and loads the patched code. Verified: SU version 1.1.2 → 1.1.3 on redirect.
-   `revert_patch` restores the stock appinfo from its backup too. The redirect also now waits 2s so
-   the app can show its "screen will reload" notice before Luna restarts.
-5. **Real offer content**: the `/api/updates/plan → offer.json` translation now works (fixed in
-   v1.1.3 — the old check looked for a `"hosted"` field the /plan response never emits, so it
-   always fell through to UpToDate; now it keys on a non-empty `"deliver":[{…` array). **Verified
-   live 2026-07-03**: baseline A→UpToDate (device has everything), baseline C/D→Available
-   "Community TLS 1.3 stack". Still TODO: no *real* OTA package payloads are hosted (the packages
-   dir has test ipks + the openssl `.off`); size/installTime in the offer are still hardcoded (the
-   /plan response carries no size). The **LunaCE launcher update** is the intended real payload.
-6. ~~Wire Part 1 → Part 2~~ **DONE** (v1.1.0) — Get Ready's "Use New Update Server" button calls
-   the bridge service with `redirect`. Needs the same human swipe-close+reopen UI test.
-7. **Revert Device A** to stock when finished (see Device A state above) — now also: remove the
-   bridge-service LS2 files (`prerm` does this) and reboot.
+## The plan (what's left, roughly in order)
+
+**Done** (this run): theming · 3-size icon · JS bridge service + install handoff · redirect
+cache-bust · confirmation dialog · server-hosted offer + on-device eligibility gate · App Menu
+(reset/save/send) · self-update check · health/stats + `otaserver.conf` + `DEPLOY.md` · production
+deploy to `swupdate.webosarchive.org` · publish to App Museum II · **fresh-device e2e via Museum (device E)**.
+
+**Next:**
+1. **Confirm + record the armed flash.** Did device E's e2e actually flash (`arm-install` → OTA
+   ramdisk → install → reboot-back), or stop at prepare? It's the last hardware-unverified step.
+2. **Host the real payload.** Swap the test packages (`updatetest`/`updatefsinfo`) for the intended
+   **LunaCE launcher update**; know exactly what the flashed IPKs do to the rootfs before arming on
+   testers' devices. Update `offer.json` version/size to match.
+3. **Broaden the beta** once #1/#2 are solid — more testers via the Museum. They self-update as you
+   publish new builds.
+4. **Beta UX polish:** (a) the "forgot to reboot" case — prompt/guide the one-time reboot after first
+   install; (b) expose or document a user-facing `revert` (un-patch System Updates) so a stuck tester
+   has an exit besides Doctor.
+5. **Server:** allowlist/basic-auth `/api/stats` + `/health` if the client-IP exposure matters.
+6. **Cleanup:** revert Device A's patched System Updates to stock (daemon `revert`), and clear leftover
+   `.otaready/` override files on old test devices (see the test-device list above).
 
 ## Key references
+- **Production server:** `https://swupdate.webosarchive.org` (git-to-deploy from `../webos-update-server`).
+  Offer = `offer.json` served at `/api/updates/offer`; deploy/config in `../webos-update-server/DEPLOY.md`
+  + `otaserver.conf`. Palm's original host was `omadm.swupdate.palm.com` (found in device `DmTree.xml`).
+- **App Museum II:** app published as **"OTA Ready"** (self-update name must match exactly). Museum
+  installs via Preware → runs our postinst. Updater lib synced from `github.com/webOSArchive/webos-common`.
 - 1p apps: `~/Projects/webos-firstparty/` — **dateandtime is the Enyo 1 UI template we copy**
   (deviceinfo and languagepicker are Mojo). Older set: `~/Desktop/jonwise/Projects/com.palm.app.*`.
 - Pulled stock System Updates source: `reference/com.palm.app.updates/` (what we patched).
