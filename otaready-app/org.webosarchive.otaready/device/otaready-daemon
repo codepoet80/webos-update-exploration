@@ -46,32 +46,68 @@ refresh_status() {
     fi
 }
 
-# Produce offer.json in the native UpdatesApp payload shape.
-#   - test override: if $DIR/test-offer.json exists, use it verbatim (for on-device UI tests)
-#   - otherwise ask our server /api/updates/plan for this device's baseline
-make_offer() {
-    if [ -f "$DIR/test-offer.json" ]; then
-        cp "$DIR/test-offer.json" "$OFFER"
-        return
+# Write server-state.json — the OTA Ready app's view of our relationship with the
+# community server. Drives its three states:
+#   redirected=false                -> state 1 (offer the "Use New Update Server" button)
+#   redirected=true, contacted=false-> state 2 (re-pointed, no confirmed server check yet)
+#   redirected=true, contacted=true -> state 3 (re-pointed + a recorded successful check)
+# "redirected" is ground truth = the System Updates patch is applied (backup exists).
+# "contacted" is sticky since the last re-point: once we get a good server response we
+# remember it in .last-contact (cleared by apply_patch/revert_patch).
+write_server_state() {
+    live_ok="$1"; result="$2"
+    [ -f "$SU_BAK" ] && redirected=true || redirected=false
+    if [ "$live_ok" = true ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S')|$result" > "$DIR/.last-contact"
     fi
+    if [ -f "$DIR/.last-contact" ]; then
+        contacted=true
+        lastTime=$(cut -d'|' -f1 < "$DIR/.last-contact")
+        lastResult=$(cut -d'|' -f2 < "$DIR/.last-contact")
+    else
+        contacted=false; lastTime=""; lastResult=""
+    fi
+    printf '{"redirected":%s,"contacted":%s,"serverUrl":"%s","lastContact":"%s","lastResult":"%s"}\n' \
+        "$redirected" "$contacted" "$(server_url)" "$lastTime" "$lastResult" > "$DIR/server-state.json"
+}
+
+# Produce offer.json (native UpdatesApp payload shape) AND record server-contact state.
+# Always queries the live server (even when a test-offer override is serving the demo)
+# so the OTA Ready app can tell whether we've actually reached our server.
+make_offer() {
     baseline=$(grep -o '"verdict":"[A-Z]*"' "$STATUS" 2>/dev/null | head -1 | cut -d'"' -f4)
     [ -z "$baseline" ] && baseline=UNKNOWN
     url="$(server_url)/api/updates/plan?baseline=$baseline"
     resp=$(curl -s -m 15 "$url" 2>/dev/null)
-    # Available iff the plan auto-delivers at least one package. A non-empty
-    # deliver array serialises as  "deliver":[{...   (empty is  "deliver":[] ).
-    # (The old check looked for a "hosted" field the /plan response never emits,
-    #  so it always fell through to UpToDate even when the server delivered.)
-    if echo "$resp" | grep -q '"deliver":\[[ ]*{'; then
-        # best-effort: first title in the payload is the first deliver item
+
+    live_ok=false; result=""
+    if echo "$resp" | grep -q '"status":"ok"'; then
+        live_ok=true
+        # Available iff the plan auto-delivers a package: non-empty  "deliver":[{...
+        if echo "$resp" | grep -q '"deliver":\[[ ]*{'; then result=Available; else result=UpToDate; fi
+    fi
+
+    # Serve the offer System Updates reads: test override wins (demo), else live result.
+    # offer_status is what System Updates will show — that's what the OTA Ready app
+    # reports too, so the two screens stay consistent (even in demo mode).
+    if [ -f "$DIR/test-offer.json" ]; then
+        cp "$DIR/test-offer.json" "$OFFER"
+        offer_status=$(grep -o '"status":"[^"]*"' "$DIR/test-offer.json" | head -1 | cut -d'"' -f4)
+        [ -z "$offer_status" ] && offer_status="$result"
+        log "offer: demo test-offer.json=$offer_status (server contacted=$live_ok)"
+    elif [ "$result" = Available ]; then
         ver=$(echo "$resp" | grep -o '"title":"[^"]*"' | head -1 | cut -d'"' -f4)
         [ -z "$ver" ] && ver="webOS Community Update"
         printf '{"status":"Available","version":"%s","size":"5","installTime":"5","networkAvailable":true,"priority":"optional"}\n' "$ver" > "$OFFER"
+        offer_status=Available
         log "offer: Available (baseline=$baseline, \"$ver\")"
     else
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
-        log "offer: UpToDate (baseline=$baseline)"
+        offer_status=UpToDate
+        log "offer: UpToDate (baseline=$baseline, contacted=$live_ok)"
     fi
+
+    write_server_state "$live_ok" "$offer_status"
 }
 
 # Bump com.palm.app.updates' appinfo version by +1 on the last dotted field.
@@ -102,6 +138,8 @@ apply_patch() {   # redirect: make System Updates use our server
     chmod 644 "$SU_JS"
     bump_su_version                                             # force Luna to drop cached UpdatesApp.js
     echo '{"status":"applied"}' > "$DIR/redirect-result.json"
+    rm -f "$DIR/.last-contact"                                   # fresh re-point -> state 2 until next server contact
+    write_server_state false ""
     log "applied UpdatesApp.js reroute (backup: $SU_BAK)"
     sleep 2                                                     # let the app show its "screen will reload" notice
     luna_restart
@@ -113,6 +151,8 @@ revert_patch() {  # revert: restore the stock System Updates app (JS + version)
         cp -p "$SU_BAK" "$SU_JS"; rm -f "$SU_BAK"
         [ -f "$SU_APPINFO_BAK" ] && { cp -p "$SU_APPINFO_BAK" "$SU_APPINFO"; rm -f "$SU_APPINFO_BAK"; }
         echo '{"status":"reverted"}' > "$DIR/redirect-result.json"
+        rm -f "$DIR/.last-contact"                               # back to state 1
+        write_server_state false ""
         log "reverted UpdatesApp.js + appinfo"
         luna_restart
     else

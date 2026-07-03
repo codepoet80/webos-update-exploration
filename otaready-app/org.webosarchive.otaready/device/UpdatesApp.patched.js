@@ -515,9 +515,14 @@ enyo.kind({
     otareadyInstall: function() {
         this.log("OTAREADY install requested -> daemon via service");
         this.otareadyInstalling = true;
+        // remember the full offer (version/size/installTime) — the daemon's status
+        // updates don't carry it, and dropping installTime renders "about undefined
+        // minutes" when we return to the offer screen.
+        this.otareadyOffer = this.payload;
         // show the progress pill while the daemon works
         this.setPayload({status: "Downloading", version: this.payload.version,
-                         size: this.payload.size, networkAvailable: true});
+                         size: this.payload.size, installTime: this.payload.installTime,
+                         networkAvailable: true});
         this.$.otareadyTrigger.call({cmd: "install"});
     },
 
@@ -557,16 +562,20 @@ enyo.kind({
         var s = st && st.status;
         if (s == "installing") {
             // armed: device is about to build the uimage and reboot into the updater
-            this.setPayload({status: "Downloading", version: this.payload.version, networkAvailable: true});
+            this.setPayload({status: "Downloading", version: this.payload.version,
+                             installTime: this.otareadyOffer && this.otareadyOffer.installTime,
+                             networkAvailable: true});
             this.pollLater();
         } else if (s == "preparing") {
             this.pollLater();
         } else if (s == "prepared") {
-            // packages staged; on a non-armed test device this is the terminal state
+            // packages staged; on a non-armed test device this is the terminal state.
+            // restore the full offer (with installTime) so the UI shows the real
+            // duration, not "about undefined minutes".
             this.otareadyInstalling = false;
             this.log("otaready install prepared: " + JSON.stringify(st));
-            this.setPayload({status: "Available", version: this.payload.version,
-                             size: this.payload.size, networkAvailable: true});
+            this.setPayload(this.otareadyOffer ||
+                {status: "Available", version: this.payload.version, networkAvailable: true});
         } else if (s == "uptodate") {
             this.otareadyInstalling = false;
             this.setPayload({status: "UpToDate", networkAvailable: true});

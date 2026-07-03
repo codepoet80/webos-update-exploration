@@ -38,6 +38,12 @@ system state or write system files.
   service). **First install needs one reboot** — ls-hubd caches its role map at boot.
 
 - **Data contract** `status.json` = `fingerprint.sh --json`: `{verdict, action, ready, model, L, T, Q, kernel, optware_ssl, patches, reason}`. `action ∈ READY | INSTALL_TLS | REMOVE_KERNEL | REVIEW | UNSUPPORTED`.
+- **`server-state.json`** (daemon → OTA Ready app) drives the app's 3 states for a READY device:
+  `{redirected, contacted, serverUrl, lastContact, lastResult}`. `redirected` = System Updates patch
+  applied (backup exists). `contacted` = sticky since last re-point (a good server response was seen;
+  cleared by redirect/revert). `lastResult` = the offer System Updates shows (Available/UpToDate) so
+  both screens agree. States: 1 not-redirected (show re-point button) · 2 redirected+!contacted ·
+  3 redirected+contacted (show last check + result).
 - **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`).
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
@@ -157,8 +163,10 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App is v1.1.2 on device; daemon is the v1.1.3 fix** (pushed straight to `/usr/bin/otaready-daemon`
-  during live testing — app JS is unchanged between the two, so a full 1.1.3 reinstall is cosmetic).
+- **App v1.1.4 installed; daemon is the v1.1.4 build** (pushed to `/usr/bin/otaready-daemon`). OTA
+  Ready now shows the **3-state model** (server-state.json); System Updates patch refreshed to
+  include the "undefined minutes" fix (SU appinfo bumped to ~1.1.7). Both verified data-side; the two
+  UIs still want a human eyeball (open OTA Ready → State 3; System Updates Install Now → real minutes).
 - **Now pointed at the LOCAL live server**, not the forced demo:
   - `/media/internal/.otaready/server-url` = `http://192.168.10.45:8080` (override; daemon default is still .20).
   - `test-offer.json` renamed to `test-offer.json.bak` (the forced-Available demo is DISABLED so

@@ -24,6 +24,7 @@ enyo.kind({
     className: "otaready enyo-bg",
 
     statusUrl: "file:///media/internal/.otaready/status.json",
+    serverStateUrl: "file:///media/internal/.otaready/server-state.json",
 
     components: [
         { kind: "Control", className: "enyo-toolbar-light header-welcome", components: [
@@ -107,18 +108,27 @@ enyo.kind({
         this.$.statusText.removeClass("otaready-attention");
         this.$.statusText.setContent("Checking your device…");
         var self = this;
+        // fingerprint first, then the server-relationship state, then render both
+        this.fetchJson(this.statusUrl, function(s) {
+            if (!s) { self.onError(); return; }
+            self.fetchJson(self.serverStateUrl, function(ss) {
+                self.renderStatus(s, ss || {});
+            });
+        });
+    },
+
+    fetchJson: function(url, cb) {
         var req = new XMLHttpRequest();
         req.onreadystatechange = function() {
             if (req.readyState != 4) { return; }
-            var s;
-            try { s = JSON.parse(req.responseText); }
-            catch (e) { self.onError(); return; }
-            self.renderStatus(s);
+            var v = null;
+            try { v = JSON.parse(req.responseText); } catch (e) {}
+            cb(v);
         };
         try {
-            req.open("GET", this.statusUrl + "?t=" + (new Date()).getTime(), true);
+            req.open("GET", url + "?t=" + (new Date()).getTime(), true);
             req.send(null);
-        } catch (e) { this.onError(); }
+        } catch (e) { cb(null); }
     },
 
     onError: function() {
@@ -131,20 +141,19 @@ enyo.kind({
         this.$.redirectBtn.hide();
     },
 
-    renderStatus: function(s) {
+    renderStatus: function(s, ss) {
         this.$.spinner.hide();
-        var ready = (s.ready === true);
-        this.$.statusText.setContent(this.headline(s));
-        if (ready) {
+        var view = this.viewFor(s, ss || {});
+        this.$.statusText.setContent(view.headline);
+        if (view.good) {
             this.$.statusText.addClass("otaready-ready");
             this.$.statusText.removeClass("otaready-attention");
         } else {
             this.$.statusText.addClass("otaready-attention");
             this.$.statusText.removeClass("otaready-ready");
         }
-        var advice = this.advice(s);
-        this.$.adviceText.setContent(advice);
-        this.$.adviceGroup.setShowing(!!advice);
+        this.$.adviceText.setContent(view.advice);
+        this.$.adviceGroup.setShowing(!!view.advice);
         this.$.valModel.setContent(s.model || "—");
         this.$.valBaseline.setContent((s.verdict || "—") + " (L=" + s.L + " T=" + s.T + " Q=" + s.Q + ")");
         this.$.valKernel.setContent(s.kernel || "—");
@@ -152,7 +161,45 @@ enyo.kind({
         this.$.valSsl.setContent(s.optware_ssl || "none");
         this.$.valPatches.setContent((s.patches && s.patches.length) ? s.patches.join(", ") : "none");
         this.$.detailGroup.show();
-        this.$.redirectBtn.setShowing(ready);
+        this.$.redirectBtn.setShowing(view.showRedirect);
+    },
+
+    // Compute headline / advice / button visibility. For a READY device this walks
+    // the three server-relationship states from server-state.json; other devices
+    // keep the advice-first flow (install TLS, remove kernel, …).
+    viewFor: function(s, ss) {
+        if (s.action !== "READY") {
+            return { headline: this.headline(s), advice: this.advice(s),
+                     good: false, showRedirect: false };
+        }
+        if (!ss.redirected) {
+            // State 1 — ready, not yet re-pointed
+            return {
+                headline: "You're ready for the OTA",
+                advice: "Your device has modern TLS and no blockers. Tap <b>Use New Update Server</b> " +
+                        "below to point System Updates at the community update server.",
+                good: true, showRedirect: true
+            };
+        }
+        if (!ss.contacted) {
+            // State 2 — re-pointed, no confirmed server check yet
+            return {
+                headline: "Pointed at the new update server",
+                advice: "System Updates now checks the community server instead of Palm's. " +
+                        "Waiting to confirm the connection — open <b>System Updates</b> and tap " +
+                        "<b>Check Now</b>, or wait a moment and tap <b>Check Again</b>.",
+                good: true, showRedirect: false
+            };
+        }
+        // State 3 — re-pointed and a recorded successful server check
+        var available = (ss.lastResult === "Available");
+        return {
+            headline: "Connected to the new update server",
+            advice: "Last check " + this.esc(ss.lastContact) + " — " +
+                    (available ? "an update is available." : "your device is up to date.") +
+                    "<br>Open <b>System Updates</b> to " + (available ? "install it." : "check again."),
+            good: true, showRedirect: false
+        };
     },
 
     headline: function(s) {
