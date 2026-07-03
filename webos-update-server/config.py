@@ -1,14 +1,12 @@
 """
 Configuration for webOS Update Server
 """
+import os
 import socket
+import configparser
 from pathlib import Path
 
-# Server settings
-HOST = "0.0.0.0"
-PORT = 8080
-DEBUG = True
-SESSION_TIMEOUT = 3600
+BASE_DIR = Path(__file__).parent
 
 
 def _lan_ip():
@@ -23,34 +21,59 @@ def _lan_ip():
     finally:
         s.close()
 
+
+# --- Settings come from a config file (not environment variables). ---
+# Searched in order; first found wins; missing file -> built-in defaults:
+#   /etc/otaserver.conf      (production)
+#   <repo>/otaserver.conf    (local/dev; shipped with dev defaults)
+# interpolation=None so URLs containing '%' are not mangled.
+_conf = configparser.ConfigParser(interpolation=None)
+CONF_PATH = None
+for _p in ("/etc/otaserver.conf", str(BASE_DIR / "otaserver.conf")):
+    if os.path.exists(_p):
+        _conf.read(_p)
+        CONF_PATH = _p
+        break
+
+
+def _cget(section, key, default=""):
+    return (_conf.get(section, key, fallback=default) or "").strip()
+
+
+# Server settings
+HOST = _cget("server", "host", "0.0.0.0") or "0.0.0.0"
+PORT = int(_cget("server", "port", "8080") or "8080")
+DEBUG = _cget("server", "debug", "true").lower() in ("1", "true", "yes", "on")
+SESSION_TIMEOUT = int(_cget("server", "session_timeout", "3600") or "3600")
+
 # Aliases for server.py compatibility
 SERVER_HOST = HOST
 SERVER_PORT = PORT
 
 # Paths
-BASE_DIR = Path(__file__).parent
 PACKAGES_DIR = BASE_DIR / "packages"
 CERTS_DIR = BASE_DIR / "certs"
 
 # Server identity
 SERVER_ID = "webos-update-server"
+
 # Base URL for package downloads (used in API responses).
-#   - SERVER_URL env set      -> used verbatim (full control)
-#   - else PUBLIC_HOST env set -> https://<PUBLIC_HOST>   (production deploy)
-#   - else                     -> http://<LAN IP>:<PORT>  (local dev, auto-detected)
+#   [public] url set   -> used verbatim (full control)
+#   [public] host set  -> https://<host>            (production deploy)
+#   neither            -> http://<LAN IP>:<PORT>    (local dev, auto-detected)
 # Palm's original OTA host was omadm.swupdate.palm.com; we match the "swupdate"
 # label on our own domain for the community server.
-import os as _os
-PUBLIC_HOST = _os.environ.get("PUBLIC_HOST", "swupdate.webosarchive.org")
-if _os.environ.get("SERVER_URL"):
-    SERVER_URL = _os.environ["SERVER_URL"]
-elif _os.environ.get("PUBLIC_HOST"):
+PUBLIC_HOST = _cget("public", "host", "")
+_server_url = _cget("public", "url", "")
+if _server_url:
+    SERVER_URL = _server_url
+elif PUBLIC_HOST:
     SERVER_URL = f"https://{PUBLIC_HOST}"
 else:
     SERVER_URL = f"http://{_lan_ip()}:{PORT}"
 
-# Optional persistent access log (rotated). Unset = stdout/journald only.
-LOG_FILE = _os.environ.get("LOG_FILE")
+# Optional persistent rotating access log; blank -> stdout/journald only.
+LOG_FILE = _cget("logging", "file", "") or None
 # Legacy OMA DM endpoint path (kept for reference)
 DM_ENDPOINT = "/palmcsext/swupdateserver"
 

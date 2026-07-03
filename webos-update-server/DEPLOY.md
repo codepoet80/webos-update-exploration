@@ -23,19 +23,41 @@ curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python
 .venv/bin/pip install -r requirements.txt
 ```
 
-## 2. Configuration (environment variables)
+## 2. Configuration (`otaserver.conf`)
 
-| Var | Purpose | Example |
-|-----|---------|---------|
-| `PUBLIC_HOST` | Public hostname → `SERVER_URL` becomes `https://<host>` (used in download URLs) | `swupdate.webosarchive.org` |
-| `SERVER_URL` | Override the full base URL verbatim (wins over `PUBLIC_HOST`) | `https://swupdate.webosarchive.org` |
-| `LOG_FILE` | Persistent rotating access log (else stdout/journald only) | `/var/log/webos-update-server.log` |
+Settings come from a config file — no environment variables. `config.py` searches,
+first found wins, missing file → built-in defaults:
 
-With none set, `SERVER_URL` auto-detects the LAN IP (local dev). In production set
-`PUBLIC_HOST` so the package `url`s handed to devices resolve publicly.
+1. `/etc/otaserver.conf`  (production)
+2. `<repo>/otaserver.conf`  (local/dev; shipped with dev defaults)
+
+```ini
+[server]
+host = 0.0.0.0        # bind 127.0.0.1 in prod (proxy faces the public interface)
+port = 8080
+debug = false
+session_timeout = 3600
+
+[public]
+# Public hostname for the download URLs handed to devices.
+# Blank -> auto-detect this host's LAN IP (local dev).
+host = swupdate.webosarchive.org
+# url = https://…       # optional full override; wins over host
+
+[logging]
+file = /var/log/webos-update-server.log   # blank -> stdout / journald only
+```
+
+With `[public] host`/`url` blank, download URLs auto-detect the LAN IP (dev). Set
+`host` for production so URLs resolve publicly. Verify what will be served:
+
+```bash
+.venv/bin/python -c "import config; print(config.CONF_PATH, config.SERVER_URL)"
+```
 
 ## 3. systemd unit
 
+Put the production settings in `/etc/otaserver.conf` (see §2), then
 `/etc/systemd/system/webos-update.service`:
 
 ```ini
@@ -45,8 +67,6 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/webos-update-server
-Environment=PUBLIC_HOST=swupdate.webosarchive.org
-Environment=LOG_FILE=/var/log/webos-update-server.log
 ExecStart=/opt/webos-update-server/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=3
@@ -59,8 +79,9 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload && sudo systemctl enable --now webos-update
 ```
 
-Bind uvicorn to `127.0.0.1` and let the reverse proxy terminate TLS on the public
-interface.
+The `--host`/`--port` on the ExecStart line are uvicorn's bind (keep them on
+`127.0.0.1` behind the proxy); `otaserver.conf` supplies everything else
+(`public.host`, logging, etc.). No environment variables needed.
 
 ## 4. Reverse proxy + TLS
 
