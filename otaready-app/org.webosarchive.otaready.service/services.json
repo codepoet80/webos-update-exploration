@@ -12,6 +12,10 @@
       "name": "trigger",
       "assistant": "Trigger",
       "public": true
+    }, {
+      "name": "saveDetails",
+      "assistant": "SaveDetails",
+      "public": true
     }]
   }]
 }

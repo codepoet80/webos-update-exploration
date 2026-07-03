@@ -101,11 +101,16 @@ enyo.kind({
         // Application menu (swipe down from the top-left corner).
         { kind: "AppMenu", components: [
             { caption: "Reset OTA Test", onclick: "doResetTest" },
+            { caption: "Save Device Details", onclick: "doSaveDetails" },
             { caption: "Send Device Details", onclick: "doSendDetails" }
         ]},
         // Opens the email composer for "Send Device Details".
         { name: "appManager", kind: "PalmService",
-          service: "palm://com.palm.applicationManager/", method: "open" }
+          service: "palm://com.palm.applicationManager/", method: "open" },
+        // Writes the diagnostics to a USB-visible file for "Save Device Details".
+        { name: "saveSvc", kind: "PalmService",
+          service: "palm://org.webosarchive.otaready.service/", method: "saveDetails",
+          onSuccess: "onSaveOk", onFailure: "onSaveFail" }
     ],
 
     create: function() {
@@ -304,6 +309,38 @@ enyo.kind({
         // re-read our own state once the daemon has re-offered
         var self = this;
         setTimeout(function() { self.doCheck(); }, 2500);
+    },
+
+    // --- App menu: Save Device Details (for users without email) -------------
+    doSaveDetails: function() {
+        // service copies the daemon's diagnostics to a USB-visible file and
+        // returns the filename; we surface it in a banner notification.
+        this.$.saveSvc.call({});
+    },
+
+    onSaveOk: function(inSender, inResponse) {
+        if (inResponse && inResponse.returnValue && inResponse.filename) {
+            this.banner("Details saved: " + inResponse.filename);
+        } else {
+            this.banner("Couldn't save device details — try again in a moment.");
+        }
+    },
+
+    onSaveFail: function(inSender, inResponse) {
+        this.banner("Couldn't reach the OTA Ready helper. If you just installed, reboot once.");
+    },
+
+    banner: function(msg) {
+        // webOS banner notification (enyo.windows.addBannerMessage(text, launchParamsJson))
+        try {
+            if (enyo.windows && enyo.windows.addBannerMessage) {
+                enyo.windows.addBannerMessage(msg, "{}");
+                return;
+            }
+        } catch (e) {}
+        // fallback if banners are unavailable (e.g. non-webOS browser)
+        this.$.adviceText.setContent(this.esc(msg));
+        this.$.adviceGroup.show();
     },
 
     // --- App menu: Send Device Details --------------------------------------

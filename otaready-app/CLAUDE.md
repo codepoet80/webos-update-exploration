@@ -167,10 +167,13 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.6 installed** (title "OTA Ready (Beta)"); daemon is the v1.1.6 build. OTA Ready shows the
-  **3-state model** and now has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge
-  `reset` → daemon rm `.installed`, re-offers) and **Send Device Details** (emails
-  `diagnostics.txt` to curator@webosarchive.org via `applicationManager/open` → com.palm.app.email).
+- **App v1.1.7 installed** (title "OTA Ready (Beta)"); daemon is the v1.1.6 build. OTA Ready shows the
+  **3-state model** and an **App Menu** (swipe from top-left) with: **Reset OTA Test** (bridge
+  `reset` → daemon rm `.installed`, re-offers), **Save Device Details** (bridge service `saveDetails`
+  copies `diagnostics.txt` → `/media/internal/OTAReady-DeviceDetails.txt` for USB retrieval, then
+  `enyo.windows.addBannerMessage` shows "Details saved: …" — for users without email), and
+  **Send Device Details** (emails `diagnostics.txt` to curator@webosarchive.org via
+  `applicationManager/open` → com.palm.app.email).
   System Updates patch (SU appinfo ~1.1.8) has the "undefined minutes" fix + deliver→UpToDate lifecycle.
   Daemon writes `diagnostics.txt` each poll and only logs offer changes (was one line/poll).
 - **Now pointed at the LOCAL live server**, not the forced demo:

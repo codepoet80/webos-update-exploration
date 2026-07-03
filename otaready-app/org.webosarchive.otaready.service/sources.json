@@ -1,4 +1,5 @@
 [
   { "source": "./index.js" },
-  { "source": "commands/Trigger.js" }
+  { "source": "commands/Trigger.js" },
+  { "source": "commands/SaveDetails.js" }
 ]
