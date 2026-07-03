@@ -96,7 +96,7 @@ system state or write system files.
   stock saved to `app/UpdatesApp.js.otaready-orig`, `appinfo.json` version bumped to **1.1.2**.
   **To revert:** restore `UpdatesApp.js.otaready-orig` → `UpdatesApp.js`, set version back to `1.1.0`,
   `killall LunaSysMgr`.
-- **`org.webosarchive.otaready` v1.0.3 installed**; daemon + `/usr/bin/ota-fingerprint` +
+- **`org.webosarchive.otaready` v1.0.4 installed** (titled "OTA Ready"); daemon + `/usr/bin/ota-fingerprint` +
   `/etc/event.d/otaready-daemon` installed; daemon running.
 - `/media/internal/.otaready/`: `status.json` (READY), `offer.json` + `test-offer.json` (Available demo).
   The `test-offer.json` is what keeps the demo showing "Available" (baseline A otherwise resolves to UpToDate).
@@ -104,8 +104,10 @@ system state or write system files.
 ## What's left (TODO, roughly in order)
 
 1. ~~Verify Part 1 theming/UI on device~~ **DONE** — v1.0.3 confirmed looking right on Device A (2026-07-03).
-2. **Replace the placeholder icon** (`icon.png` is currently System Updates' icon; the 48px
-   `images/header-icon-otaready.png` is scaled from it — regenerate both together).
+2. ~~Replace the placeholder icon~~ **DONE** (v1.0.4) — custom webOS-style glossy-circle icon
+   (broadcast arcs + green download arrow); 64px launcher + 48px header both rendered from the
+   generator script (`tools/make_icon.py`, run from the app root; redraws at 512px and downscales). App renamed
+   to **"OTA Ready"** (appinfo title, in-app header, html title).
 3. **Build the Install handoff (Part 2):**
    - A small **JS service** in the app package that writes `/media/internal/.otaready/cmd` (Enyo
      can't write files); the patched `otareadyInstall()` calls it.

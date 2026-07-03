@@ -28,7 +28,7 @@ enyo.kind({
     components: [
         { kind: "Control", className: "enyo-toolbar-light header-welcome", components: [
             { kind: "Image", src: "images/header-icon-otaready.png" },
-            { content: "Get Ready for OTA", style: "padding-left: 10px;" }
+            { content: "OTA Ready", style: "padding-left: 10px;" }
         ]},
         { kind: "Scroller", flex: 1, components: [
             { kind: "VFlexBox", className: "box-center", components: [

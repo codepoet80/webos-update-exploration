@@ -6,7 +6,7 @@
 set -e
 
 APPID=org.webosarchive.otaready
-VERSION=1.0.3
+VERSION=1.0.4
 HERE=$(cd "$(dirname "$0")" && pwd)
 APPDIR="$HERE/$APPID"
 FINGERPRINT="$HERE/../webos-update-server/device-scripts/fingerprint.sh"
