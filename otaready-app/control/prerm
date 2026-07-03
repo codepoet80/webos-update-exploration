@@ -14,9 +14,10 @@ SVCID=org.webosarchive.otaready.service
 rm -f /var/palm/ls2/roles/prv/$SVCID.json /var/palm/ls2/roles/pub/$SVCID.json
 rm -f /var/palm/ls2/services/prv/$SVCID /var/palm/ls2/services/pub/$SVCID
 
-# leave the last status.json (harmless, user-visible); clear only the control channel
+# leave the last status.json (harmless, user-visible); clear only the control channel + state
 rm -f /media/internal/.otaready/cmd /media/internal/.otaready/redirect-result.json
-rm -f /media/internal/.otaready/install-status.json
+rm -f /media/internal/.otaready/install-status.json /media/internal/.otaready/server-state.json
+rm -f /media/internal/.otaready/.last-contact /media/internal/.otaready/.installed
 
 echo "otaready: removed helper + daemon"
 exit 0

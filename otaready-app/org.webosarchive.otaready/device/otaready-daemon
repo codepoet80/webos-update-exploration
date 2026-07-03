@@ -90,7 +90,12 @@ make_offer() {
     # Serve the offer System Updates reads: test override wins (demo), else live result.
     # offer_status is what System Updates will show — that's what the OTA Ready app
     # reports too, so the two screens stay consistent (even in demo mode).
-    if [ -f "$DIR/test-offer.json" ]; then
+    if [ -f "$DIR/.installed" ]; then
+        # this update cycle's payload was already delivered -> nothing more to offer
+        printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
+        offer_status=UpToDate
+        log "offer: UpToDate (payload already delivered; rm .otaready/.installed to re-offer)"
+    elif [ -f "$DIR/test-offer.json" ]; then
         cp "$DIR/test-offer.json" "$OFFER"
         offer_status=$(grep -o '"status":"[^"]*"' "$DIR/test-offer.json" | head -1 | cut -d'"' -f4)
         [ -z "$offer_status" ] && offer_status="$result"
@@ -138,7 +143,7 @@ apply_patch() {   # redirect: make System Updates use our server
     chmod 644 "$SU_JS"
     bump_su_version                                             # force Luna to drop cached UpdatesApp.js
     echo '{"status":"applied"}' > "$DIR/redirect-result.json"
-    rm -f "$DIR/.last-contact"                                   # fresh re-point -> state 2 until next server contact
+    rm -f "$DIR/.last-contact" "$DIR/.installed"                 # fresh re-point -> state 2, offers re-enabled
     write_server_state false ""
     log "applied UpdatesApp.js reroute (backup: $SU_BAK)"
     sleep 2                                                     # let the app show its "screen will reload" notice
@@ -151,7 +156,7 @@ revert_patch() {  # revert: restore the stock System Updates app (JS + version)
         cp -p "$SU_BAK" "$SU_JS"; rm -f "$SU_BAK"
         [ -f "$SU_APPINFO_BAK" ] && { cp -p "$SU_APPINFO_BAK" "$SU_APPINFO"; rm -f "$SU_APPINFO_BAK"; }
         echo '{"status":"reverted"}' > "$DIR/redirect-result.json"
-        rm -f "$DIR/.last-contact"                               # back to state 1
+        rm -f "$DIR/.last-contact" "$DIR/.installed"            # back to state 1, offers re-enabled
         write_server_state false ""
         log "reverted UpdatesApp.js + appinfo"
         luna_restart
@@ -169,6 +174,13 @@ revert_patch() {  # revert: restore the stock System Updates app (JS + version)
 # irreversible step (build uimage + reboot into the updater) only runs if
 # $DIR/arm-install exists. Without that flag the daemon preps and stops, so the
 # handoff can be exercised on a test device without any risk of a reboot/flash.
+# mark this update cycle's payload as delivered: subsequent offers resolve to
+# UpToDate (System Updates shows "no more updates", OTA Ready shows up to date).
+mark_installed() {
+    touch "$DIR/.installed"
+    printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
+}
+
 do_install() {
     echo '{"status":"preparing"}' > "$DIR/install-status.json"
     log "install: preparing (direct-update)"
@@ -197,12 +209,13 @@ do_install() {
         echo '{"status":"installing"}' > "$DIR/install-status.json"
         log "install: ARMED — building uimage and rebooting into the OTA ramdisk"
         if /usr/share/ota-scripts/make-update-uimage >> "$LOG" 2>&1; then
-            sync; reboot
+            mark_installed; sync; reboot
         else
             echo '{"status":"failed","reason":"make-update-uimage failed"}' > "$DIR/install-status.json"
             log "install: make-update-uimage failed"
         fi
     else
+        mark_installed   # payload delivered (staged); flip the offer to UpToDate
         echo '{"status":"prepared","note":"not armed; create .otaready/arm-install to flash+reboot"}' > "$DIR/install-status.json"
         log "install: prepared but NOT armed ($DIR/arm-install absent) — skipping reboot"
     fi

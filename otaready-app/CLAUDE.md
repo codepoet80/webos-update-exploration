@@ -44,7 +44,11 @@ system state or write system files.
   cleared by redirect/revert). `lastResult` = the offer System Updates shows (Available/UpToDate) so
   both screens agree. States: 1 not-redirected (show re-point button) · 2 redirected+!contacted ·
   3 redirected+contacted (show last check + result).
-- **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`).
+- **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`). After a payload is delivered
+  (install prepared/flashed) the daemon drops a `.otaready/.installed` marker and serves `UpToDate`
+  from then on, so System Updates settles into "no more updates" instead of re-offering. `rm .installed`
+  (or a fresh `redirect`) re-enables the offer. The demo `test-offer.json` still forces `Available`
+  until an install delivers it.
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
 ## Status (2026-07-03)
@@ -163,10 +167,11 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.4 installed; daemon is the v1.1.4 build** (pushed to `/usr/bin/otaready-daemon`). OTA
-  Ready now shows the **3-state model** (server-state.json); System Updates patch refreshed to
-  include the "undefined minutes" fix (SU appinfo bumped to ~1.1.7). Both verified data-side; the two
-  UIs still want a human eyeball (open OTA Ready → State 3; System Updates Install Now → real minutes).
+- **App v1.1.5 installed; daemon is the v1.1.5 build** (pushed to `/usr/bin/otaready-daemon`). OTA
+  Ready shows the **3-state model**; System Updates patch (SU appinfo ~1.1.8) has the "undefined
+  minutes" fix AND the deliver→UpToDate lifecycle (Available → Install Now → "no more updates",
+  stays there). Full lifecycle verified daemon-side; demo currently reset to **Available** for a
+  human tap-through in System Updates.
 - **Now pointed at the LOCAL live server**, not the forced demo:
   - `/media/internal/.otaready/server-url` = `http://192.168.10.45:8080` (override; daemon default is still .20).
   - `test-offer.json` renamed to `test-offer.json.bak` (the forced-Available demo is DISABLED so

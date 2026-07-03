@@ -569,13 +569,11 @@ enyo.kind({
         } else if (s == "preparing") {
             this.pollLater();
         } else if (s == "prepared") {
-            // packages staged; on a non-armed test device this is the terminal state.
-            // restore the full offer (with installTime) so the UI shows the real
-            // duration, not "about undefined minutes".
+            // payload delivered — the daemon has flipped the offer to UpToDate, so settle
+            // into the "no more updates" state instead of looping back to the offer.
             this.otareadyInstalling = false;
-            this.log("otaready install prepared: " + JSON.stringify(st));
-            this.setPayload(this.otareadyOffer ||
-                {status: "Available", version: this.payload.version, networkAvailable: true});
+            this.log("otaready install prepared (delivered): " + JSON.stringify(st));
+            this.setPayload({status: "UpToDate", networkAvailable: true});
         } else if (s == "uptodate") {
             this.otareadyInstalling = false;
             this.setPayload({status: "UpToDate", networkAvailable: true});
