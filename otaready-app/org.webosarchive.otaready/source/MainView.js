@@ -75,7 +75,12 @@ enyo.kind({
             { kind: "Button", caption: "Check Again", onclick: "doCheck" },
             { name: "redirectBtn", kind: "Button", className: "enyo-button-affirmative",
               caption: "Use New Update Server", onclick: "doRedirect", showing: false }
-        ]}
+        ]},
+        // Bridge to the root daemon (writes .otaready/cmd). Enyo apps can't write
+        // files, so the redirect handoff goes through this JS service.
+        { name: "otareadyTrigger", kind: "PalmService",
+          service: "palm://org.webosarchive.otaready.service/", method: "trigger",
+          onSuccess: "onRedirectOk", onFailure: "onRedirectFail" }
     ],
 
     create: function() {
@@ -172,10 +177,29 @@ enyo.kind({
     },
 
     doRedirect: function() {
-        this.$.adviceText.setContent(
-            "Part 2 — repointing the device at the new update server — will hook into System Updates. " +
-            "(Install handoff is being wired up.)");
+        this.$.redirectBtn.setDisabled(true);
+        this.$.adviceText.setContent("Pointing System Updates at the community update server…");
         this.$.adviceGroup.show();
+        this.$.otareadyTrigger.call({ cmd: "redirect" });
+    },
+
+    onRedirectOk: function(inSender, inResponse) {
+        if (inResponse && inResponse.returnValue) {
+            this.$.adviceText.setContent(
+                "Done. Open <b>System Updates</b> and tap <b>Check Now</b> — it now reads the community " +
+                "offer. (The screen may flash as it reloads.)");
+        } else {
+            this.onRedirectFail(inSender, inResponse);
+            return;
+        }
+        this.$.redirectBtn.setDisabled(false);
+    },
+
+    onRedirectFail: function(inSender, inResponse) {
+        this.$.adviceText.setContent(
+            "Couldn't reach the OTA Ready helper service. If you just installed the app, reboot once " +
+            "so the service registers, then try again.");
+        this.$.redirectBtn.setDisabled(false);
     },
 
     esc: function(v) {

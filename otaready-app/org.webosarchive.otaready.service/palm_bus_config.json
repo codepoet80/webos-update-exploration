@@ -1,0 +1,4 @@
+{
+	"busNames": ["org.webosarchive.otaready.service"],
+	"privateBusAccess": true
+}

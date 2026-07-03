@@ -90,11 +90,18 @@ enyo.kind({
                 {name: "openDbHelp", method: "open", params: {id: "com.palm.app.help", params: {target: 'http://help.palm.com/basics/basics_db_full.html'}}}
         ]},
         
-        {name: "signalAddMatch", kind: enyo.PalmService, 
-            service: "palm://com.palm.bus/signal/", method: "addmatch", 
-            subscribe: true, onSuccess: "handleBatteryLevel", onFailure: "handleBatteryLevel"},        
-        {name: "batteryStatus", kind: enyo.PalmService, 
-            service: "palm://com.palm.power/com/palm/power/", method: "batteryStatusQuery"}
+        {name: "signalAddMatch", kind: enyo.PalmService,
+            service: "palm://com.palm.bus/signal/", method: "addmatch",
+            subscribe: true, onSuccess: "handleBatteryLevel", onFailure: "handleBatteryLevel"},
+        {name: "batteryStatus", kind: enyo.PalmService,
+            service: "palm://com.palm.power/com/palm/power/", method: "batteryStatusQuery"},
+
+        // OTAREADY: bridge to the root daemon. Enyo apps can't write files, so
+        // "Install Now" calls this JS service, which writes .otaready/cmd; the
+        // daemon then runs the direct-update flow.
+        {name: "otareadyTrigger", kind: enyo.PalmService,
+            service: "palm://org.webosarchive.otaready.service/", method: "trigger",
+            onSuccess: "otareadyTriggerOk", onFailure: "otareadyTriggerFail"}
     ],
 
     create: function() {
@@ -500,14 +507,81 @@ enyo.kind({
         }
     },
 
-    // OTAREADY: install handoff to the root daemon. Enyo apps can't write files directly,
-    // so the trigger goes through the otaready JS service (added in the next increment),
-    // which writes /media/internal/.otaready/cmd; the root daemon then runs the direct-update
-    // flow (download IPKs -> session files -> make-update-uimage -> reboot into the OTA ramdisk).
+    // OTAREADY: install handoff to the root daemon. Enyo apps can't write files
+    // directly, so the trigger goes through the otaready JS service, which writes
+    // /media/internal/.otaready/cmd; the root daemon then runs the direct-update flow
+    // (download IPKs -> session files -> make-update-uimage -> reboot into the OTA
+    // ramdisk). We reflect the daemon's install-status.json back into the native UI.
     otareadyInstall: function() {
-        this.log("OTAREADY install requested — daemon handoff pending (service TODO)");
-        this.setPayload({status: "Available", version: this.payload.version, size: this.payload.size,
-                         networkAvailable: true, otareadyNote: "install-handoff-todo"});
+        this.log("OTAREADY install requested -> daemon via service");
+        this.otareadyInstalling = true;
+        // show the progress pill while the daemon works
+        this.setPayload({status: "Downloading", version: this.payload.version,
+                         size: this.payload.size, networkAvailable: true});
+        this.$.otareadyTrigger.call({cmd: "install"});
+    },
+
+    otareadyTriggerOk: function(inSender, inResponse) {
+        this.log("otaready trigger ok: " + JSON.stringify(inResponse));
+        // daemon has the command; start polling its progress file
+        this.pollInstallStatus();
+    },
+
+    otareadyTriggerFail: function(inSender, inResponse) {
+        this.log("otaready trigger fail: " + JSON.stringify(inResponse));
+        this.otareadyInstalling = false;
+        this.setPayload({status: "InstallFailed", version: this.payload.version});
+    },
+
+    // Poll .otaready/install-status.json (written by the daemon) and map it to the
+    // native payload states. Same raw-XHR approach as checkForUpdate/offer.json.
+    pollInstallStatus: function() {
+        if (!this.otareadyInstalling) { return; }
+        var self = this;
+        var req = new XMLHttpRequest();
+        req.onreadystatechange = function() {
+            if (req.readyState != 4) { return; }
+            var st = null;
+            try { st = JSON.parse(req.responseText); } catch(e) {}
+            self.applyInstallStatus(st);
+        };
+        try {
+            req.open("GET", "file:///media/internal/.otaready/install-status.json?t=" + (new Date()).getTime(), true);
+            req.send(null);
+        } catch(e) {
+            setTimeout(function() { self.pollInstallStatus(); }, 2000);
+        }
+    },
+
+    applyInstallStatus: function(st) {
+        var s = st && st.status;
+        if (s == "installing") {
+            // armed: device is about to build the uimage and reboot into the updater
+            this.setPayload({status: "Downloading", version: this.payload.version, networkAvailable: true});
+            this.pollLater();
+        } else if (s == "preparing") {
+            this.pollLater();
+        } else if (s == "prepared") {
+            // packages staged; on a non-armed test device this is the terminal state
+            this.otareadyInstalling = false;
+            this.log("otaready install prepared: " + JSON.stringify(st));
+            this.setPayload({status: "Available", version: this.payload.version,
+                             size: this.payload.size, networkAvailable: true});
+        } else if (s == "uptodate") {
+            this.otareadyInstalling = false;
+            this.setPayload({status: "UpToDate", networkAvailable: true});
+        } else if (s == "failed") {
+            this.otareadyInstalling = false;
+            this.setPayload({status: "InstallFailed", version: this.payload.version});
+        } else {
+            // no status file yet — keep waiting
+            this.pollLater();
+        }
+    },
+
+    pollLater: function() {
+        var self = this;
+        setTimeout(function() { self.pollInstallStatus(); }, 2000);
     },
 
     handleGetSubscription: function(inSender, inResponse){

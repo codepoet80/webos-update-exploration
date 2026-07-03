@@ -6,26 +6,33 @@
 set -e
 
 APPID=org.webosarchive.otaready
-VERSION=1.0.4
+SVCID=org.webosarchive.otaready.service
+VERSION=1.1.0
 HERE=$(cd "$(dirname "$0")" && pwd)
 APPDIR="$HERE/$APPID"
+SVCDIR="$HERE/$SVCID"
 FINGERPRINT="$HERE/../webos-update-server/device-scripts/fingerprint.sh"
+DIRECTUPDATE="$HERE/../webos-update-server/device-scripts/direct-update.sh"
 OUT="$HERE/${APPID}_${VERSION}_all.ipk"
 
 [ -f "$FINGERPRINT" ] || { echo "ERROR: fingerprint.sh not found at $FINGERPRINT"; exit 1; }
+[ -f "$DIRECTUPDATE" ] || { echo "ERROR: direct-update.sh not found at $DIRECTUPDATE"; exit 1; }
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# 1. sync the canonical fingerprint into the bundle as the device helper
-cp "$FINGERPRINT" "$APPDIR/device/ota-fingerprint"
+# 1. sync canonical device scripts into the bundle (single source of truth)
+cp "$FINGERPRINT"   "$APPDIR/device/ota-fingerprint"
+cp "$DIRECTUPDATE"  "$APPDIR/device/direct-update.sh"
 
 # 2. stage the data root. OFFLINE-ROOT RULE: data.tar.gz is rooted at
-#    ./usr/palm/applications/<id>/... (the installer extracts it under
+#    ./usr/palm/{applications,services}/<id>/... (the installer extracts it under
 #    /media/cryptofs/apps), so do NOT include media/cryptofs/apps/ in the path.
 STAGE="$WORK/data/usr/palm/applications/$APPID"
-mkdir -p "$STAGE"
+STAGE_SVC="$WORK/data/usr/palm/services/$SVCID"
+mkdir -p "$STAGE" "$STAGE_SVC"
 cp -a "$APPDIR/." "$STAGE/"
+cp -a "$SVCDIR/." "$STAGE_SVC/"
 ( cd "$WORK/data" && tar --owner=0 --group=0 -czf "$WORK/data.tar.gz" . )
 
 # 3. control.tar.gz = control + postinst + prerm (0755 scripts)

@@ -14,6 +14,7 @@ STATUS="$DIR/status.json"
 OFFER="$DIR/offer.json"
 CMD="$DIR/cmd"
 FP=/usr/bin/ota-fingerprint
+DU=/usr/bin/ota-direct-update
 LOG=/var/log/otaready-daemon.log
 REFRESH_EVERY=15   # seconds
 
@@ -87,6 +88,54 @@ revert_patch() {  # revert: restore the stock System Updates app
     fi
 }
 
+# install: the direct-update flow (download IPKs from our server -> write
+# /var/lib/software/SessionFiles -> make-update-uimage -> reboot into the OTA
+# ramdisk). Progress is reported in install-status.json, which the patched
+# System Updates app polls.
+#
+# SAFETY: the download+session-file prep is non-destructive and reversible. The
+# irreversible step (build uimage + reboot into the updater) only runs if
+# $DIR/arm-install exists. Without that flag the daemon preps and stops, so the
+# handoff can be exercised on a test device without any risk of a reboot/flash.
+do_install() {
+    echo '{"status":"preparing"}' > "$DIR/install-status.json"
+    log "install: preparing (direct-update)"
+    url="$(server_url)"
+
+    if [ ! -x "$DU" ]; then
+        echo '{"status":"failed","reason":"direct-update helper missing"}' > "$DIR/install-status.json"
+        log "install: $DU missing"; return 1
+    fi
+
+    # download packages + build SessionFiles (non-destructive). -y = non-interactive.
+    if "$DU" "$url" -y >> "$LOG" 2>&1; then
+        if [ -s /var/lib/software/SessionFiles/update_list.txt ]; then
+            log "install: session files prepared"
+        else
+            echo '{"status":"uptodate","note":"server offered no packages"}' > "$DIR/install-status.json"
+            log "install: server offered no packages — nothing to install"
+            return 0
+        fi
+    else
+        echo '{"status":"failed","reason":"prepare failed"}' > "$DIR/install-status.json"
+        log "install: prepare failed"; return 1
+    fi
+
+    if [ -f "$DIR/arm-install" ]; then
+        echo '{"status":"installing"}' > "$DIR/install-status.json"
+        log "install: ARMED — building uimage and rebooting into the OTA ramdisk"
+        if /usr/share/ota-scripts/make-update-uimage >> "$LOG" 2>&1; then
+            sync; reboot
+        else
+            echo '{"status":"failed","reason":"make-update-uimage failed"}' > "$DIR/install-status.json"
+            log "install: make-update-uimage failed"
+        fi
+    else
+        echo '{"status":"prepared","note":"not armed; create .otaready/arm-install to flash+reboot"}' > "$DIR/install-status.json"
+        log "install: prepared but NOT armed ($DIR/arm-install absent) — skipping reboot"
+    fi
+}
+
 mkdir -p "$DIR"
 log "started (pid $$)"
 refresh_status
@@ -99,7 +148,7 @@ while true; do
             check)    log "cmd: check";    refresh_status; make_offer ;;
             redirect) log "cmd: redirect"; apply_patch ;;
             revert)   log "cmd: revert";   revert_patch ;;
-            install)  log "cmd: install (direct-update flow — TODO increment 3)" ;;
+            install)  log "cmd: install"; do_install ;;
             "")       : ;;
             *)        log "cmd: unknown ($c)" ;;
         esac

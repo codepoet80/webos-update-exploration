@@ -6,10 +6,17 @@ stop otaready-daemon 2>/dev/null || true
 
 rm -f /usr/bin/ota-fingerprint
 rm -f /usr/bin/otaready-daemon
+rm -f /usr/bin/ota-direct-update
 rm -f /etc/event.d/otaready-daemon
+
+# LS2 registration for the bridge service (installed by postinst into /var/palm)
+SVCID=org.webosarchive.otaready.service
+rm -f /var/palm/ls2/roles/prv/$SVCID.json /var/palm/ls2/roles/pub/$SVCID.json
+rm -f /var/palm/ls2/services/prv/$SVCID /var/palm/ls2/services/pub/$SVCID
 
 # leave the last status.json (harmless, user-visible); clear only the control channel
 rm -f /media/internal/.otaready/cmd /media/internal/.otaready/redirect-result.json
+rm -f /media/internal/.otaready/install-status.json
 
 echo "otaready: removed helper + daemon"
 exit 0

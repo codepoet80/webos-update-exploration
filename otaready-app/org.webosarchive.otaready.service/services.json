@@ -1,0 +1,17 @@
+{
+  "id": "org.webosarchive.otaready.service",
+  "description": "OTA Ready command bridge (jailed app -> root daemon)",
+  "commandTimeout": 30,
+  "activityTimeout": 30,
+  "engine": "node",
+  "services": [{
+    "name": "org.webosarchive.otaready.service",
+    "description": "Writes a command to the otaready daemon control file",
+    "assistant": "OtareadyService",
+    "commands": [{
+      "name": "trigger",
+      "assistant": "Trigger",
+      "public": true
+    }]
+  }]
+}
