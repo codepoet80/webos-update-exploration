@@ -6,6 +6,9 @@ Implements the SyncML/OMA DM protocol for software updates.
 """
 import logging
 import base64
+import time
+from collections import defaultdict, deque
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +32,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Optional persistent access log (survives restarts; journald covers stdout too).
+# Set LOG_FILE in the environment / config to enable.
+_log_file = getattr(config, "LOG_FILE", None)
+if _log_file:
+    _fh = RotatingFileHandler(_log_file, maxBytes=5_000_000, backupCount=5)
+    _fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(_fh)
+    logger.info(f"Access log -> {_log_file}")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="webOS Update Server",
@@ -49,6 +61,76 @@ def get_client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _endpoint_bucket(path: str) -> str:
+    """Group per-package download paths so stats don't explode."""
+    if path.startswith("/packages/"):
+        return "/packages/*"
+    return path
+
+
+class Metrics:
+    """In-memory request metrics for beta health monitoring.
+
+    Resets on restart (fine for liveness/health; add a store later if history
+    matters). Exposed via /health (summary) and /api/stats (detail).
+    """
+    def __init__(self):
+        self.started = time.time()
+        self.requests_total = 0
+        self.by_endpoint = defaultdict(int)
+        self.status_codes = defaultdict(int)
+        self.errors = 0
+        self.clients = {}                    # ip -> {count, last_seen, build, checks, downloads}
+        self.recent = deque(maxlen=100)      # most-recent-first
+
+    def record(self, method: str, path: str, ip: str, status: int,
+               build: Optional[str], baseline: Optional[str]):
+        self.requests_total += 1
+        self.by_endpoint[_endpoint_bucket(path)] += 1
+        self.status_codes[str(status)] += 1
+        if status >= 500:
+            self.errors += 1
+        c = self.clients.setdefault(ip, {"count": 0, "last_seen": 0.0, "build": None,
+                                         "baseline": None, "checks": 0, "downloads": 0})
+        c["count"] += 1
+        c["last_seen"] = time.time()
+        if build:
+            c["build"] = build           # real device build, from /check?build=
+        if baseline:
+            c["baseline"] = baseline      # eligibility baseline, from /plan?baseline=
+        if path.startswith("/api/updates/check"):
+            c["checks"] += 1
+        if path.startswith("/packages/"):
+            c["downloads"] += 1
+        self.recent.appendleft({
+            "t": int(time.time()), "method": method, "path": path,
+            "ip": ip, "status": status,
+        })
+
+
+metrics = Metrics()
+
+
+@app.middleware("http")
+async def access_log_and_metrics(request: Request, call_next):
+    """Log every request with device context and feed the metrics collector."""
+    ip = get_client_ip(request)
+    build = request.query_params.get("build")
+    baseline = request.query_params.get("baseline")
+    try:
+        response = await call_next(request)
+        status = response.status_code
+    except Exception:
+        metrics.record(request.method, request.url.path, ip, 500, build, baseline)
+        logger.exception(f"{ip} {request.method} {request.url.path} -> 500 (unhandled)")
+        raise
+    metrics.record(request.method, request.url.path, ip, status, build, baseline)
+    tag = build or (f"baseline {baseline}" if baseline else None)
+    logger.info(f"ACCESS {ip} {request.method} {request.url.path} -> {status}"
+                + (f" [{tag}]" if tag else ""))
+    return response
 
 
 @app.on_event("startup")
@@ -82,6 +164,49 @@ async def status():
         "status": "healthy",
         "sessions": len(session_manager.sessions),
         "packages": len(update_manager.packages),
+    }
+
+
+@app.get("/health")
+async def health():
+    """Liveness + at-a-glance health for uptime monitors."""
+    return {
+        "status": "ok",
+        "uptime_seconds": int(time.time() - metrics.started),
+        "version": app.version,
+        "public_url": config.SERVER_URL,
+        "packages": len(update_manager.packages),
+        "requests_total": metrics.requests_total,
+        "unique_clients": len(metrics.clients),
+        "errors": metrics.errors,
+    }
+
+
+@app.get("/api/stats")
+async def stats():
+    """Detailed beta-health snapshot: traffic, per-device activity, recent requests."""
+    now = time.time()
+    clients = [
+        {
+            "ip": ip,
+            "build": c["build"],
+            "baseline": c["baseline"],
+            "requests": c["count"],
+            "checks": c["checks"],
+            "downloads": c["downloads"],
+            "last_seen_seconds_ago": int(now - c["last_seen"]),
+        }
+        for ip, c in sorted(metrics.clients.items(), key=lambda kv: -kv[1]["last_seen"])
+    ]
+    return {
+        "uptime_seconds": int(now - metrics.started),
+        "requests_total": metrics.requests_total,
+        "errors": metrics.errors,
+        "by_endpoint": dict(metrics.by_endpoint),
+        "status_codes": dict(metrics.status_codes),
+        "unique_clients": len(clients),
+        "clients": clients,
+        "recent": list(metrics.recent)[:30],
     }
 
 

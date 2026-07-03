@@ -35,10 +35,22 @@ CERTS_DIR = BASE_DIR / "certs"
 # Server identity
 SERVER_ID = "webos-update-server"
 # Base URL for package downloads (used in API responses).
-# Auto-detected to this host's LAN IP so download URLs handed to the device are reachable.
-# Override by setting the SERVER_URL env var if auto-detection picks the wrong interface.
+#   - SERVER_URL env set      -> used verbatim (full control)
+#   - else PUBLIC_HOST env set -> https://<PUBLIC_HOST>   (production deploy)
+#   - else                     -> http://<LAN IP>:<PORT>  (local dev, auto-detected)
+# Palm's original OTA host was omadm.swupdate.palm.com; we match the "swupdate"
+# label on our own domain for the community server.
 import os as _os
-SERVER_URL = _os.environ.get("SERVER_URL", f"http://{_lan_ip()}:{PORT}")
+PUBLIC_HOST = _os.environ.get("PUBLIC_HOST", "swupdate.webosarchive.org")
+if _os.environ.get("SERVER_URL"):
+    SERVER_URL = _os.environ["SERVER_URL"]
+elif _os.environ.get("PUBLIC_HOST"):
+    SERVER_URL = f"https://{PUBLIC_HOST}"
+else:
+    SERVER_URL = f"http://{_lan_ip()}:{PORT}"
+
+# Optional persistent access log (rotated). Unset = stdout/journald only.
+LOG_FILE = _os.environ.get("LOG_FILE")
 # Legacy OMA DM endpoint path (kept for reference)
 DM_ENDPOINT = "/palmcsext/swupdateserver"
 
