@@ -19,6 +19,16 @@
       "description": "Test update package for OTA verification",
       "min_version": "",
       "target_build": "Nova-99.0.0"
+    },
+    {
+      "name": "com.webos.updatetest_1.0.0_all",
+      "version": "1.0.0",
+      "filename": "com.webos.updatetest_1.0.0_all.ipk",
+      "size": 964,
+      "md5": "1004834b04116c9c9f3fca21a30d8e9d",
+      "description": "Update package: com.webos.updatetest_1.0.0_all",
+      "min_version": "",
+      "target_build": ""
     }
   ]
 }
