@@ -206,7 +206,7 @@ enyo.kind({
             // State 1 — ready, not yet re-pointed
             return {
                 headline: "You're ready for the OTA",
-                advice: "Your device has modern TLS and no blockers. Tap <b>Use New Update Server</b> " +
+                advice: "Your device has modern TLS and no blockers. Please help by Sending Device Data (from the App Menu)! Then tap <b>Use New Update Server</b> " +
                         "below to point System Updates at the community update server.",
                 good: true, showRedirect: true
             };
