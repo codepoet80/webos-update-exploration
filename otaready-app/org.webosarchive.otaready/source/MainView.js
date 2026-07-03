@@ -67,9 +67,9 @@ enyo.kind({
                         { flex: 1, content: "Optware OpenSSL" },
                         { name: "valSsl", className: "otaready-value" }
                     ]},
-                    { kind: "Item", tapHighlight: false, layoutKind: "HFlexLayout", components: [
-                        { flex: 1, content: "Community Patches" },
-                        { name: "valPatches", className: "otaready-value" }
+                    { kind: "Item", tapHighlight: false, components: [
+                        { content: "Community Patches" },
+                        { name: "valPatches", className: "otaready-patch-list", allowHtml: true }
                     ]}
                 ]}
             ]}
@@ -196,7 +196,7 @@ enyo.kind({
         this.$.valKernel.setContent(s.kernel || "—");
         this.$.valTls.setContent(s.T === "1" ? "Yes" : "No");
         this.$.valSsl.setContent(s.optware_ssl || "none");
-        this.$.valPatches.setContent((s.patches && s.patches.length) ? s.patches.join(", ") : "none");
+        this.$.valPatches.setContent(this.patchList(s.patches));
         this.$.detailGroup.show();
         this.$.redirectBtn.setShowing(view.showRedirect);
     },
@@ -385,6 +385,19 @@ enyo.kind({
                "Re-pointed: " + (ss.redirected ? "yes" : "no") +
                ", contacted: " + (ss.contacted ? "yes" : "no") +
                ", last: " + (ss.lastContact || "never") + " (" + (ss.lastResult || "-") + ")\n";
+    },
+
+    // Community Patches as a wrapping bulleted list — a single patch id can be
+    // 60+ chars, which overruns a right-aligned value cell. Trim the ubiquitous
+    // org.webosinternals.patches. prefix for readability.
+    patchList: function(patches) {
+        if (!patches || !patches.length) { return "none"; }
+        var out = [];
+        for (var i = 0; i < patches.length; i++) {
+            var p = String(patches[i]).replace(/^org\.webosinternals\.patches\./, "");
+            out.push("• " + this.esc(p));
+        }
+        return out.join("<br>");
     },
 
     esc: function(v) {

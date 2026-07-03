@@ -58,6 +58,15 @@
     margin-left: 12px;
 }
 
+/* Community Patches list (full-width, wraps; below its label) */
+.otaready-patch-list {
+    color: #666;
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 4px 0 0 10px;
+    word-break: break-word;
+}
+
 /* Redirect confirmation dialog */
 .otaready-dialog-title {
     font-size: 20px;

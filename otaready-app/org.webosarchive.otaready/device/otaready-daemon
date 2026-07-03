@@ -20,7 +20,7 @@ REFRESH_EVERY=15   # seconds
 APP_APPINFO=/media/cryptofs/apps/usr/palm/applications/org.webosarchive.otaready/appinfo.json
 
 # our update server (override by writing a URL into $DIR/server-url)
-SERVER_DEFAULT="http://192.168.10.20:8080"
+SERVER_DEFAULT="https://swupdate.webosarchive.org"
 
 # System Updates app + our patched copy
 SU_DIR=/usr/palm/applications/com.palm.app.updates
@@ -73,47 +73,49 @@ write_server_state() {
 }
 
 # Produce offer.json (native UpdatesApp payload shape) AND record server-contact state.
-# Always queries the live server (even when a test-offer override is serving the demo)
-# so the OTA Ready app can tell whether we've actually reached our server.
+#
+# Model: every ELIGIBLE device gets the same single server-hosted offer
+# (GET /api/updates/offer — one file the server admin edits + git-pushes). A device
+# is eligible unless its local fingerprint rules it out: `ready` is false for a
+# custom kernel, an unsupported model, or a config we can't vouch for. So the offer
+# is content (server) gated by system state (on-device) — not per-baseline.
+#
+# Local overrides still win, for on-device demo/testing:
+#   .installed      -> UpToDate (this cycle's payload already delivered)
+#   test-offer.json -> served verbatim (forced demo offer)
 make_offer() {
-    baseline=$(grep -o '"verdict":"[A-Z]*"' "$STATUS" 2>/dev/null | head -1 | cut -d'"' -f4)
-    [ -z "$baseline" ] && baseline=UNKNOWN
-    url="$(server_url)/api/updates/plan?baseline=$baseline"
-    resp=$(curl -s -m 15 "$url" 2>/dev/null)
+    ready_ok=false
+    grep -q '"ready":true' "$STATUS" 2>/dev/null && ready_ok=true
 
-    live_ok=false; result=""
-    if echo "$resp" | grep -q '"status":"ok"'; then
-        live_ok=true
-        # Available iff the plan auto-delivers a package: non-empty  "deliver":[{...
-        if echo "$resp" | grep -q '"deliver":\[[ ]*{'; then result=Available; else result=UpToDate; fi
-    fi
+    resp=$(curl -s -m 15 "$(server_url)/api/updates/offer" 2>/dev/null)
+    live_ok=false
+    echo "$resp" | grep -q '"status"' && live_ok=true
 
-    # Serve the offer System Updates reads: test override wins (demo), else live result.
-    # offer_status is what System Updates will show — that's what the OTA Ready app
-    # reports too, so the two screens stay consistent (even in demo mode).
-    src=live
     if [ -f "$DIR/.installed" ]; then
-        # this update cycle's payload was already delivered -> nothing more to offer
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
-        offer_status=UpToDate; src="delivered"
+        offer_status=UpToDate; src=delivered
     elif [ -f "$DIR/test-offer.json" ]; then
         cp "$DIR/test-offer.json" "$OFFER"
         offer_status=$(grep -o '"status":"[^"]*"' "$DIR/test-offer.json" | head -1 | cut -d'"' -f4)
-        [ -z "$offer_status" ] && offer_status="$result"
-        src="demo"
-    elif [ "$result" = Available ]; then
-        ver=$(echo "$resp" | grep -o '"title":"[^"]*"' | head -1 | cut -d'"' -f4)
-        [ -z "$ver" ] && ver="webOS Community Update"
-        printf '{"status":"Available","version":"%s","size":"5","installTime":"5","networkAvailable":true,"priority":"optional"}\n' "$ver" > "$OFFER"
-        offer_status=Available
+        [ -z "$offer_status" ] && offer_status=Available
+        src=demo
+    elif [ "$ready_ok" != true ]; then
+        # ruled out by system state (custom kernel / unsupported model / incompatibility)
+        printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
+        offer_status=UpToDate; src=excluded
+    elif [ "$live_ok" = true ]; then
+        printf '%s\n' "$resp" > "$OFFER"      # serve the server's canonical offer verbatim
+        offer_status=$(echo "$resp" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+        [ -z "$offer_status" ] && offer_status=UpToDate
+        src=server
     else
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
-        offer_status=UpToDate
+        offer_status=UpToDate; src=unreachable
     fi
 
     # log only when the served offer changes (avoids one line per 15s poll)
     if [ "$offer_status|$src|$live_ok" != "$_last_offer" ]; then
-        log "offer: $offer_status [$src] (baseline=$baseline, server contacted=$live_ok)"
+        log "offer: $offer_status [$src] (ready=$ready_ok, server contacted=$live_ok)"
         _last_offer="$offer_status|$src|$live_ok"
     fi
 

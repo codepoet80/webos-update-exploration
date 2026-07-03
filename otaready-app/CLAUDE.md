@@ -44,11 +44,14 @@ system state or write system files.
   cleared by redirect/revert). `lastResult` = the offer System Updates shows (Available/UpToDate) so
   both screens agree. States: 1 not-redirected (show re-point button) · 2 redirected+!contacted ·
   3 redirected+contacted (show last check + result).
-- **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`). After a payload is delivered
-  (install prepared/flashed) the daemon drops a `.otaready/.installed` marker and serves `UpToDate`
-  from then on, so System Updates settles into "no more updates" instead of re-offering. `rm .installed`
-  (or a fresh `redirect`) re-enables the offer. The demo `test-offer.json` still forces `Available`
-  until an install delivers it.
+- **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`).
+  **Offer model (v1.1.11):** every *eligible* device gets the same single **server-hosted** offer —
+  the daemon `GET`s `/api/updates/offer` (one `offer.json` the server admin edits + git-pushes) and
+  serves it verbatim. Eligibility is an **exclusion gate applied on-device**: the daemon only offers
+  when the local fingerprint says `ready:true` (a custom kernel / unsupported model / unrecognised
+  config → not ready → `UpToDate`, no offer). The OTA is *other* content, not TLS — TLS is only needed
+  to reach the server. Local overrides still win for testing: `.installed` → `UpToDate` (payload
+  delivered this cycle; `rm` or a fresh `redirect` re-arms), `test-offer.json` → forced demo offer.
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
 ## Status (2026-07-03)
@@ -167,7 +170,7 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.10 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
+- **App v1.1.11 (Museum candidate); v1.1.10 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
   build. OTA Ready shows the **3-state model**, runs an **App Museum II self-update check on launch**
   (see below), and has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge `reset` →
   daemon rm `.installed`, re-offers), **Save Device Details** (bridge `saveDetails` copies
