@@ -110,12 +110,19 @@ enyo.kind({
         // Writes the diagnostics to a USB-visible file for "Save Device Details".
         { name: "saveSvc", kind: "PalmService",
           service: "palm://org.webosarchive.otaready.service/", method: "saveDetails",
-          onSuccess: "onSaveOk", onFailure: "onSaveFail" }
+          onSuccess: "onSaveOk", onFailure: "onSaveFail" },
+        // App Museum II self-update helper. handleUI:true -> it shows its own
+        // "Update Now / Later" popup and launches Preware when a newer OTA Ready
+        // is published (appcatalog.webosarchive.org). App Museum title: "OTA Ready".
+        { name: "otaUpdater", kind: "Helpers.Updater" }
     ],
 
     create: function() {
         this.inherited(arguments);
         this.doCheck();
+        // App self-update check on launch — silent unless a newer OTA Ready exists,
+        // in which case the helper prompts and offers to install it via Preware.
+        this.$.otaUpdater.CheckForUpdate("OTA Ready");
     },
 
     doCheck: function() {
@@ -224,7 +231,7 @@ enyo.kind({
         // State 3 — re-pointed and a recorded successful server check
         var available = (ss.lastResult === "Available");
         return {
-            headline: "Connected to the new update server",
+            headline: "Connected to the new update server! Please help by Sending Device Data (from the App Menu)! ",
             advice: "Last check " + this.esc(ss.lastContact) + " — " +
                     (available ? "an update is available." : "your device is up to date.") +
                     "<br>Open <b>System Updates</b> to " + (available ? "install it." : "check again."),
@@ -246,7 +253,7 @@ enyo.kind({
     advice: function(s) {
         switch (s.action) {
             case "READY":
-                return "Your device has modern TLS and no blockers. Tap <b>Use New Update Server</b> " +
+                return "Your device has modern TLS and no blockers. Please help by Sending Device Data (from the App Menu)! Then tap <b>Use New Update Server</b> " +
                        "below to point System Updates at the community update server.";
             case "INSTALL_TLS":
                 return "Open <b>Preware</b>, make sure the <b>WOSA Modernize</b> feed is added, and install " +

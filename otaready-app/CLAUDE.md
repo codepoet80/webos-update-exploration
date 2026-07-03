@@ -167,13 +167,17 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.7 installed** (title "OTA Ready (Beta)"); daemon is the v1.1.6 build. OTA Ready shows the
-  **3-state model** and an **App Menu** (swipe from top-left) with: **Reset OTA Test** (bridge
-  `reset` → daemon rm `.installed`, re-offers), **Save Device Details** (bridge service `saveDetails`
-  copies `diagnostics.txt` → `/media/internal/OTAReady-DeviceDetails.txt` for USB retrieval, then
-  `enyo.windows.addBannerMessage` shows "Details saved: …" — for users without email), and
-  **Send Device Details** (emails `diagnostics.txt` to curator@webosarchive.org via
-  `applicationManager/open` → com.palm.app.email).
+- **App v1.1.9 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
+  build. OTA Ready shows the **3-state model**, runs an **App Museum II self-update check on launch**
+  (see below), and has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge `reset` →
+  daemon rm `.installed`, re-offers), **Save Device Details** (bridge `saveDetails` copies
+  `diagnostics.txt` → `/media/internal/OTAReady-DeviceDetails.txt`, then `enyo.windows.addBannerMessage`
+  "Details saved: …" — for users without email), and **Send Device Details** (emails to
+  curator@webosarchive.org via com.palm.app.email).
+- **Self-update:** `source/Updater-Helper.js` (`Helpers.Updater`, synced from webOSArchive/webos-common)
+  checks `appcatalog.webosarchive.org` on launch with App Museum name **"OTA Ready"** vs the installed
+  `#.#.#` version; if newer, it pops "Update Now / Later" and installs the IPK via Preware. Silent/graceful
+  until the app is published (museum currently returns `{"error":"No matching app found for ota ready"}`).
   System Updates patch (SU appinfo ~1.1.8) has the "undefined minutes" fix + deliver→UpToDate lifecycle.
   Daemon writes `diagnostics.txt` each poll and only logs offer changes (was one line/poll).
 - **Now pointed at the LOCAL live server**, not the forced demo:
