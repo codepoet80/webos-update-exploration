@@ -17,6 +17,7 @@ FP=/usr/bin/ota-fingerprint
 DU=/usr/bin/ota-direct-update
 LOG=/var/log/otaready-daemon.log
 REFRESH_EVERY=15   # seconds
+APP_APPINFO=/media/cryptofs/apps/usr/palm/applications/org.webosarchive.otaready/appinfo.json
 
 # our update server (override by writing a URL into $DIR/server-url)
 SERVER_DEFAULT="http://192.168.10.20:8080"
@@ -90,26 +91,30 @@ make_offer() {
     # Serve the offer System Updates reads: test override wins (demo), else live result.
     # offer_status is what System Updates will show — that's what the OTA Ready app
     # reports too, so the two screens stay consistent (even in demo mode).
+    src=live
     if [ -f "$DIR/.installed" ]; then
         # this update cycle's payload was already delivered -> nothing more to offer
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
-        offer_status=UpToDate
-        log "offer: UpToDate (payload already delivered; rm .otaready/.installed to re-offer)"
+        offer_status=UpToDate; src="delivered"
     elif [ -f "$DIR/test-offer.json" ]; then
         cp "$DIR/test-offer.json" "$OFFER"
         offer_status=$(grep -o '"status":"[^"]*"' "$DIR/test-offer.json" | head -1 | cut -d'"' -f4)
         [ -z "$offer_status" ] && offer_status="$result"
-        log "offer: demo test-offer.json=$offer_status (server contacted=$live_ok)"
+        src="demo"
     elif [ "$result" = Available ]; then
         ver=$(echo "$resp" | grep -o '"title":"[^"]*"' | head -1 | cut -d'"' -f4)
         [ -z "$ver" ] && ver="webOS Community Update"
         printf '{"status":"Available","version":"%s","size":"5","installTime":"5","networkAvailable":true,"priority":"optional"}\n' "$ver" > "$OFFER"
         offer_status=Available
-        log "offer: Available (baseline=$baseline, \"$ver\")"
     else
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
         offer_status=UpToDate
-        log "offer: UpToDate (baseline=$baseline, contacted=$live_ok)"
+    fi
+
+    # log only when the served offer changes (avoids one line per 15s poll)
+    if [ "$offer_status|$src|$live_ok" != "$_last_offer" ]; then
+        log "offer: $offer_status [$src] (baseline=$baseline, server contacted=$live_ok)"
+        _last_offer="$offer_status|$src|$live_ok"
     fi
 
     write_server_state "$live_ok" "$offer_status"
@@ -221,24 +226,49 @@ do_install() {
     fi
 }
 
+# Diagnostic report the "Send Device Details" menu item emails to the curator.
+# Regenerated each refresh so it's always current; the app just reads the file.
+write_diagnostics() {
+    appver=$(sed -n 's/.*"version"[ ]*:[ ]*"\([0-9.]*\)".*/\1/p' "$APP_APPINFO" 2>/dev/null | head -1)
+    {
+        echo "webOS Archive — OTA Ready (Beta) diagnostic report"
+        echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "App version: ${appver:-unknown}"
+        echo "webOS build: $(grep '^BUILDNAME=' /etc/palm-build-info 2>/dev/null | cut -d= -f2)"
+        echo "Uptime (s): $(cut -d. -f1 /proc/uptime 2>/dev/null)"
+        echo "Free space: $(df -k /media/internal 2>/dev/null | awk 'END{printf "%d MB free of %d MB\n", $4/1024, $2/1024}')"
+        echo
+        echo "--- fingerprint (status.json) ---"
+        cat "$STATUS" 2>/dev/null
+        echo; echo
+        echo "--- update-server state (server-state.json) ---"
+        cat "$DIR/server-state.json" 2>/dev/null
+        echo; echo
+        echo "--- recent daemon log ---"
+        tail -20 "$LOG" 2>/dev/null
+    } > "$DIR/diagnostics.txt.tmp" 2>/dev/null && mv "$DIR/diagnostics.txt.tmp" "$DIR/diagnostics.txt"
+}
+
 mkdir -p "$DIR"
 log "started (pid $$)"
 refresh_status
 make_offer
+write_diagnostics
 count=0
 while true; do
     if [ -f "$CMD" ]; then
         c=$(tr -d ' \t\r\n' < "$CMD" 2>/dev/null); rm -f "$CMD"
         case "$c" in
-            check)    log "cmd: check";    refresh_status; make_offer ;;
-            redirect) log "cmd: redirect"; apply_patch ;;
-            revert)   log "cmd: revert";   revert_patch ;;
-            install)  log "cmd: install"; do_install ;;
-            "")       : ;;
-            *)        log "cmd: unknown ($c)" ;;
+            check)      log "cmd: check";      refresh_status; make_offer; write_diagnostics ;;
+            redirect)   log "cmd: redirect";   apply_patch ;;
+            revert)     log "cmd: revert";     revert_patch ;;
+            install)    log "cmd: install";    do_install ;;
+            reset)      log "cmd: reset-test"; rm -f "$DIR/.installed" "$DIR/install-status.json"; make_offer; write_diagnostics ;;
+            "")         : ;;
+            *)          log "cmd: unknown ($c)" ;;
         esac
     fi
     count=$((count + 1))
-    if [ "$count" -ge "$REFRESH_EVERY" ]; then refresh_status; make_offer; count=0; fi
+    if [ "$count" -ge "$REFRESH_EVERY" ]; then refresh_status; make_offer; write_diagnostics; count=0; fi
     sleep 1
 done

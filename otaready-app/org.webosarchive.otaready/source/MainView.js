@@ -25,6 +25,8 @@ enyo.kind({
 
     statusUrl: "file:///media/internal/.otaready/status.json",
     serverStateUrl: "file:///media/internal/.otaready/server-state.json",
+    diagUrl: "file:///media/internal/.otaready/diagnostics.txt",
+    curatorEmail: "curator@webosarchive.org",
 
     components: [
         { kind: "Control", className: "enyo-toolbar-light header-welcome", components: [
@@ -94,7 +96,16 @@ enyo.kind({
                 { kind: "Button", caption: "Cancel", onclick: "cancelRedirect" },
                 { kind: "Button", className: "enyo-button-affirmative", caption: "Continue", onclick: "confirmRedirect" }
             ]}
-        ]}
+        ]},
+
+        // Application menu (swipe down from the top-left corner).
+        { kind: "AppMenu", components: [
+            { caption: "Reset OTA Test", onclick: "doResetTest" },
+            { caption: "Send Device Details", onclick: "doSendDetails" }
+        ]},
+        // Opens the email composer for "Send Device Details".
+        { name: "appManager", kind: "PalmService",
+          service: "palm://com.palm.applicationManager/", method: "open" }
     ],
 
     create: function() {
@@ -111,10 +122,24 @@ enyo.kind({
         // fingerprint first, then the server-relationship state, then render both
         this.fetchJson(this.statusUrl, function(s) {
             if (!s) { self.onError(); return; }
+            self.lastStatus = s;
             self.fetchJson(self.serverStateUrl, function(ss) {
-                self.renderStatus(s, ss || {});
+                self.lastServerState = ss || {};
+                self.renderStatus(s, self.lastServerState);
             });
         });
+    },
+
+    fetchText: function(url, cb) {
+        var req = new XMLHttpRequest();
+        req.onreadystatechange = function() {
+            if (req.readyState != 4) { return; }
+            cb(req.responseText || "");
+        };
+        try {
+            req.open("GET", url + "?t=" + (new Date()).getTime(), true);
+            req.send(null);
+        } catch (e) { cb(""); }
     },
 
     fetchJson: function(url, cb) {
@@ -267,6 +292,55 @@ enyo.kind({
             "Couldn't reach the OTA Ready helper service. If you just installed the app, reboot once " +
             "so the service registers, then try again.");
         this.$.redirectBtn.setDisabled(false);
+    },
+
+    // --- App menu: Reset OTA Test -------------------------------------------
+    doResetTest: function() {
+        this.$.otareadyTrigger.call({ cmd: "reset" });
+        this.$.adviceText.setContent(
+            "OTA Test reset. Open <b>System Updates</b> and tap <b>Check Now</b> — " +
+            "the community update will be offered again.");
+        this.$.adviceGroup.show();
+        // re-read our own state once the daemon has re-offered
+        var self = this;
+        setTimeout(function() { self.doCheck(); }, 2500);
+    },
+
+    // --- App menu: Send Device Details --------------------------------------
+    doSendDetails: function() {
+        var self = this;
+        // the daemon keeps a full diagnostic report fresh; fall back to what we have
+        this.fetchText(this.diagUrl, function(body) {
+            if (!body || body.length < 10) { body = self.fallbackDiagnostics(); }
+            self.$.appManager.call({
+                id: "com.palm.app.email",
+                params: {
+                    summary: "OTA Ready (Beta) device details",
+                    text: body,
+                    recipients: [{
+                        type: "email", role: 1,
+                        value: self.curatorEmail, contactDisplay: "webOS Archive Curator"
+                    }]
+                }
+            });
+        });
+    },
+
+    fallbackDiagnostics: function() {
+        var s = this.lastStatus || {}, ss = this.lastServerState || {};
+        var patches = (s.patches && s.patches.length) ? s.patches.join(", ") : "none";
+        return "OTA Ready (Beta) device details\n\n" +
+               "Model: " + (s.model || "?") + "\n" +
+               "Baseline: " + (s.verdict || "?") + " (L=" + s.L + " T=" + s.T + " Q=" + s.Q + ")\n" +
+               "Kernel: " + (s.kernel || "?") + "\n" +
+               "Modern TLS: " + (s.T === "1" ? "yes" : "no") + "\n" +
+               "Optware OpenSSL: " + (s.optware_ssl || "none") + "\n" +
+               "Community patches: " + patches + "\n" +
+               "Action: " + (s.action || "?") + "\n\n" +
+               "Server: " + (ss.serverUrl || "?") + "\n" +
+               "Re-pointed: " + (ss.redirected ? "yes" : "no") +
+               ", contacted: " + (ss.contacted ? "yes" : "no") +
+               ", last: " + (ss.lastContact || "never") + " (" + (ss.lastResult || "-") + ")\n";
     },
 
     esc: function(v) {

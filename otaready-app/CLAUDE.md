@@ -167,11 +167,12 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.5 installed; daemon is the v1.1.5 build** (pushed to `/usr/bin/otaready-daemon`). OTA
-  Ready shows the **3-state model**; System Updates patch (SU appinfo ~1.1.8) has the "undefined
-  minutes" fix AND the deliver→UpToDate lifecycle (Available → Install Now → "no more updates",
-  stays there). Full lifecycle verified daemon-side; demo currently reset to **Available** for a
-  human tap-through in System Updates.
+- **App v1.1.6 installed** (title "OTA Ready (Beta)"); daemon is the v1.1.6 build. OTA Ready shows the
+  **3-state model** and now has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge
+  `reset` → daemon rm `.installed`, re-offers) and **Send Device Details** (emails
+  `diagnostics.txt` to curator@webosarchive.org via `applicationManager/open` → com.palm.app.email).
+  System Updates patch (SU appinfo ~1.1.8) has the "undefined minutes" fix + deliver→UpToDate lifecycle.
+  Daemon writes `diagnostics.txt` each poll and only logs offer changes (was one line/poll).
 - **Now pointed at the LOCAL live server**, not the forced demo:
   - `/media/internal/.otaready/server-url` = `http://192.168.10.45:8080` (override; daemon default is still .20).
   - `test-offer.json` renamed to `test-offer.json.bak` (the forced-Available demo is DISABLED so

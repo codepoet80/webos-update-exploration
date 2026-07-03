@@ -7,7 +7,7 @@ set -e
 
 APPID=org.webosarchive.otaready
 SVCID=org.webosarchive.otaready.service
-VERSION=1.1.5
+VERSION=1.1.6
 HERE=$(cd "$(dirname "$0")" && pwd)
 APPDIR="$HERE/$APPID"
 SVCDIR="$HERE/$SVCID"

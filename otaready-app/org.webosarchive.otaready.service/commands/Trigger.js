@@ -12,7 +12,7 @@ var Trigger = function () {
 
 Trigger.prototype = {
   run: function (future) {
-    var ALLOWED = { check: 1, redirect: 1, revert: 1, install: 1 };
+    var ALLOWED = { check: 1, redirect: 1, revert: 1, install: 1, reset: 1 };
     var args = this.controller.args || {};
     var cmd = args.cmd;
     console.log("otaready Trigger.run cmd=" + cmd + " args=" + JSON.stringify(args));
