@@ -58,13 +58,19 @@ make_offer() {
     [ -z "$baseline" ] && baseline=UNKNOWN
     url="$(server_url)/api/updates/plan?baseline=$baseline"
     resp=$(curl -s -m 15 "$url" 2>/dev/null)
-    # Available only if the plan has at least one auto-deliver package that is hosted.
-    if echo "$resp" | grep -q '"deliver"' && echo "$resp" | grep -q '"hosted":\["'; then
+    # Available iff the plan auto-delivers at least one package. A non-empty
+    # deliver array serialises as  "deliver":[{...   (empty is  "deliver":[] ).
+    # (The old check looked for a "hosted" field the /plan response never emits,
+    #  so it always fell through to UpToDate even when the server delivered.)
+    if echo "$resp" | grep -q '"deliver":\[[ ]*{'; then
+        # best-effort: first title in the payload is the first deliver item
         ver=$(echo "$resp" | grep -o '"title":"[^"]*"' | head -1 | cut -d'"' -f4)
         [ -z "$ver" ] && ver="webOS Community Update"
         printf '{"status":"Available","version":"%s","size":"5","installTime":"5","networkAvailable":true,"priority":"optional"}\n' "$ver" > "$OFFER"
+        log "offer: Available (baseline=$baseline, \"$ver\")"
     else
         printf '{"status":"UpToDate","networkAvailable":true}\n' > "$OFFER"
+        log "offer: UpToDate (baseline=$baseline)"
     fi
 }
 

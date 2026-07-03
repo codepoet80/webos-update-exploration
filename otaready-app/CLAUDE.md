@@ -125,6 +125,26 @@ system state or write system files.
 #   reboot                # ONLY on the FIRST install of the bridge service (ls-hubd role cache; see lesson #9)
 ```
 
+## Running the update server locally (there is no prod server — we ARE it)
+
+The daemon/app talk to `../webos-update-server` (FastAPI). To run it on this dev box:
+
+```bash
+# one-time: this host has no pip/venv, so bootstrap into scratchpad
+python3 -m venv --without-pip <venv>
+curl -sS https://bootstrap.pypa.io/get-pip.py | <venv>/bin/python
+<venv>/bin/pip install -r ../webos-update-server/requirements.txt
+# run (binds 0.0.0.0:8080; access log shows each device request):
+cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port 8080
+```
+
+- `config.py` `SERVER_URL` now **auto-detects this host's LAN IP** (was hardcoded to .20) so the
+  download URLs it hands the device are reachable; override with the `SERVER_URL` env var.
+- Point a device at it: write the URL into `/media/internal/.otaready/server-url` on the device
+  (this dev host was `192.168.10.45`, the TouchPad was `192.168.10.41` — both may change via DHCP).
+- Endpoints exercised: `/api/updates/plan?baseline=<X>` (daemon offer check),
+  `/api/updates/check` + `/urls` + `/session-files` (direct-update/install flow).
+
 ## Device A current state (leftover from testing — REVERT when done)
 
 - **`com.palm.app.updates` is PATCHED in place** on rootfs: `app/UpdatesApp.js` = our reroute,
@@ -137,9 +157,15 @@ system state or write system files.
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- `/media/internal/.otaready/`: `status.json` (READY), `offer.json` + `test-offer.json` (Available demo).
-  The `test-offer.json` is what keeps the demo showing "Available" (baseline A otherwise resolves to UpToDate).
-  NOTE: my install-handoff test left `install-status.json` = `{"status":"uptodate"}` here (harmless).
+- **App is v1.1.2 on device; daemon is the v1.1.3 fix** (pushed straight to `/usr/bin/otaready-daemon`
+  during live testing — app JS is unchanged between the two, so a full 1.1.3 reinstall is cosmetic).
+- **Now pointed at the LOCAL live server**, not the forced demo:
+  - `/media/internal/.otaready/server-url` = `http://192.168.10.45:8080` (override; daemon default is still .20).
+  - `test-offer.json` renamed to `test-offer.json.bak` (the forced-Available demo is DISABLED so
+    make_offer calls the live server). `offer.json` now = live result = `{"status":"UpToDate"}` (correct for baseline A).
+  - **To restore the forced-Available UI demo:** `mv test-offer.json.bak test-offer.json` (and optionally
+    `rm server-url` to go back to the .20 default).
+- `install-status.json` = `{"status":"uptodate"}` left from the handoff test (harmless).
 
 ## What's left (TODO, roughly in order)
 
@@ -160,9 +186,13 @@ system state or write system files.
    `UpdatesApp.js` and loads the patched code. Verified: SU version 1.1.2 → 1.1.3 on redirect.
    `revert_patch` restores the stock appinfo from its backup too. The redirect also now waits 2s so
    the app can show its "screen will reload" notice before Luna restarts.
-5. **Real offer content**: `/api/updates/plan → offer.json` translation is best-effort; no OTA
-   packages are hosted yet. The **LunaCE launcher update** (worked on elsewhere) is the intended
-   real payload; the TLS suite is delivered via Preware, not our OTA.
+5. **Real offer content**: the `/api/updates/plan → offer.json` translation now works (fixed in
+   v1.1.3 — the old check looked for a `"hosted"` field the /plan response never emits, so it
+   always fell through to UpToDate; now it keys on a non-empty `"deliver":[{…` array). **Verified
+   live 2026-07-03**: baseline A→UpToDate (device has everything), baseline C/D→Available
+   "Community TLS 1.3 stack". Still TODO: no *real* OTA package payloads are hosted (the packages
+   dir has test ipks + the openssl `.off`); size/installTime in the offer are still hardcoded (the
+   /plan response carries no size). The **LunaCE launcher update** is the intended real payload.
 6. ~~Wire Part 1 → Part 2~~ **DONE** (v1.1.0) — Get Ready's "Use New Update Server" button calls
    the bridge service with `redirect`. Needs the same human swipe-close+reopen UI test.
 7. **Revert Device A** to stock when finished (see Device A state above) — now also: remove the

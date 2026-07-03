@@ -62,12 +62,16 @@
 .otaready-dialog-title {
     font-size: 20px;
     font-weight: bold;
+    margin-left: 10px;
+    margin-right: 10px;
     margin-bottom: 10px;
 }
 .otaready-dialog-text {
     font-size: 16px;
     line-height: 1.4;
     color: #333;
+    margin-left: 10px;
+    margin-right: 10px;
     margin-bottom: 16px;
 }
 .otaready-dialog-buttons {

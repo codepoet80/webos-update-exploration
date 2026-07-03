@@ -1,6 +1,7 @@
 """
 Configuration for webOS Update Server
 """
+import socket
 from pathlib import Path
 
 # Server settings
@@ -8,6 +9,19 @@ HOST = "0.0.0.0"
 PORT = 8080
 DEBUG = True
 SESSION_TIMEOUT = 3600
+
+
+def _lan_ip():
+    """Best-effort primary LAN IP of this host (the address devices reach us on).
+    Uses a UDP socket toward the LAN gateway range — no packets are actually sent."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.168.10.1", 1))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 # Aliases for server.py compatibility
 SERVER_HOST = HOST
@@ -20,9 +34,11 @@ CERTS_DIR = BASE_DIR / "certs"
 
 # Server identity
 SERVER_ID = "webos-update-server"
-# Base URL for package downloads (used in API responses)
-# Note: Update this to match your device's network access to the server
-SERVER_URL = f"http://192.168.10.20:{PORT}"
+# Base URL for package downloads (used in API responses).
+# Auto-detected to this host's LAN IP so download URLs handed to the device are reachable.
+# Override by setting the SERVER_URL env var if auto-detection picks the wrong interface.
+import os as _os
+SERVER_URL = _os.environ.get("SERVER_URL", f"http://{_lan_ip()}:{PORT}")
 # Legacy OMA DM endpoint path (kept for reference)
 DM_ENDPOINT = "/palmcsext/swupdateserver"
 

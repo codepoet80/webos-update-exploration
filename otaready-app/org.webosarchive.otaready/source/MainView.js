@@ -87,9 +87,8 @@ enyo.kind({
         { name: "confirmDialog", kind: "Dialog", lazy: false, components: [
             { className: "otaready-dialog-title", content: "Switch to the new update server?" },
             { className: "otaready-dialog-text", allowHtml: true, content:
-                "This sets up <b>System Updates</b> to read the community update offer.<br><br>" +
-                "The update system will reload, so <b>the screen goes dark for several seconds and " +
-                "open apps close</b>. That's expected — it isn't a crash." },
+                "This sets up <b>System Updates</b> to read the community update server.<br><br>" +
+                "Luna will restart, and all apps will be closed during the setup. " },
             { className: "otaready-dialog-buttons", layoutKind: "HFlexLayout", pack: "center", components: [
                 { kind: "Button", caption: "Cancel", onclick: "cancelRedirect" },
                 { kind: "Button", className: "enyo-button-affirmative", caption: "Continue", onclick: "confirmRedirect" }
