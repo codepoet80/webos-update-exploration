@@ -1,6 +1,6 @@
 {
   "id": "org.webosarchive.otaready",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "vendor": "webOS Archive",
   "type": "web",
   "main": "index.html",

@@ -34,23 +34,24 @@ system state or write system files.
 - **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`).
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
-## Status (2026-07-02)
+## Status (2026-07-03)
 
 ### Working / proven on hardware (Device A)
 - **Part 2 display reroute WORKS end-to-end.** Stock System Updates renders our offer:
   *"Installation of webOS Community Update 1.0 will take about 5 minutes"* + **Install Now**,
   with zero contact with Palm's servers. Verified on Device A.
 - **Part 1 installs and runs.** postinst installs+starts the daemon; `status.json` is written;
-  the app shows *"✅ You're ready for the OTA"* on Device A (baseline A).
+  the app shows the READY state on Device A (baseline A).
+- **Part 1 UI/theming FIXED and verified on device (v1.0.3, 2026-07-03).** MainView copies the
+  `com.palm.app.dateandtime` first-party idiom: `enyo-toolbar-light header-welcome` header
+  (48px `images/header-icon-otaready.png` + title), `Scroller` → 500px `box-center` column of
+  captioned `RowGroup`/`Item` groups (Status / What To Do / Device Details label–value rows),
+  themed `Spinner`, bottom `Toolbar` with `enyo-button-affirmative` redirect button. Emoji removed
+  (2011 WebKit has no color-emoji font); state is a colored bold headline instead. CSS carries only
+  dateandtime's layout rules (`box-center`, `header-welcome`, `enyo-group`) + small app classes.
 - **Fingerprint `--json`** validated on-device (Device C → `INSTALL_TLS`, Device A → `READY`).
 
 ### Broken / incomplete
-- **Part 1 THEMING is broken** — the Enyo controls render unstyled (plain text on gray); only
-  the custom `.advice-box` CSS applies. **Latest fix (v1.0.2): switched index.html to the XHTML 1.1
-  doctype** the 1p apps use (HTML5 `<!doctype html>` drops 2011 WebKit into a mode where the era's
-  enyo theme CSS doesn't apply). **UNVERIFIED — this is the first thing to test next session.**
-  If it's still wrong, keep diffing against the 1p apps in `~/Desktop/jonwise/Projects/com.palm.app.*`
-  (e.g. `com.palm.app.soundsandalerts` — simple, themed, loads system `enyo/0.10/framework/enyo.js`).
 - **Part 2 Install handoff is a STUB.** `otareadyInstall()` in `UpdatesApp.patched.js` just logs.
 
 ## Hard-won on-device lessons (do not relearn these)
@@ -61,7 +62,10 @@ system state or write system files.
 2. **Use plain `XMLHttpRequest` + `JSON.parse`, NOT `enyo.xhr`/`enyo.json`.** This Enyo build's
    `enyo.xhr.request(url, opts)` treats the first arg as an options object (`'sync' in <url>`) and
    throws during `create()` → white screen. Both `UpdatesApp.patched.js` and `MainView.js` use raw XHR.
-3. **XHTML 1.1 doctype for theming** (the current unverified fix — see above).
+3. **XHTML 1.1 doctype + first-party markup for theming** — verified (v1.0.3). HTML5
+   `<!doctype html>` drops 2011 WebKit into a mode where the era's enyo theme CSS doesn't apply,
+   AND the theme only styles real Enyo kinds (`RowGroup`/`Item`/`Toolbar`…), not bare divs.
+   Copy `com.palm.app.dateandtime` (index.html doctype, header-welcome/box-center layout) exactly.
 4. **Load the system enyo:** `/usr/palm/frameworks/enyo/0.10/framework/enyo.js` (0.10, what the
    themed 1p apps use). The bundled-enyo pattern in `~/Desktop/jonwise/Projects/enyo1-bootplate`
    is only for web/Android portability — not needed (or wanted) here.
@@ -92,16 +96,16 @@ system state or write system files.
   stock saved to `app/UpdatesApp.js.otaready-orig`, `appinfo.json` version bumped to **1.1.2**.
   **To revert:** restore `UpdatesApp.js.otaready-orig` → `UpdatesApp.js`, set version back to `1.1.0`,
   `killall LunaSysMgr`.
-- **`org.webosarchive.otaready` v1.0.2 installed**; daemon + `/usr/bin/ota-fingerprint` +
+- **`org.webosarchive.otaready` v1.0.3 installed**; daemon + `/usr/bin/ota-fingerprint` +
   `/etc/event.d/otaready-daemon` installed; daemon running.
 - `/media/internal/.otaready/`: `status.json` (READY), `offer.json` + `test-offer.json` (Available demo).
   The `test-offer.json` is what keeps the demo showing "Available" (baseline A otherwise resolves to UpToDate).
 
 ## What's left (TODO, roughly in order)
 
-1. **Verify/finish Part 1 theming** (the v1.0.2 XHTML-doctype fix). Test on device; if still off,
-   diff against `com.palm.app.soundsandalerts`.
-2. **Replace the placeholder icon** (`icon.png` is currently System Updates' icon).
+1. ~~Verify Part 1 theming/UI on device~~ **DONE** — v1.0.3 confirmed looking right on Device A (2026-07-03).
+2. **Replace the placeholder icon** (`icon.png` is currently System Updates' icon; the 48px
+   `images/header-icon-otaready.png` is scaled from it — regenerate both together).
 3. **Build the Install handoff (Part 2):**
    - A small **JS service** in the app package that writes `/media/internal/.otaready/cmd` (Enyo
      can't write files); the patched `otareadyInstall()` calls it.
@@ -119,7 +123,8 @@ system state or write system files.
 7. **Revert Device A** to stock when finished (see Device A state above).
 
 ## Key references
-- 1p themed Enyo apps: `~/Desktop/jonwise/Projects/com.palm.app.*` (soundsandalerts is simplest).
+- 1p apps: `~/Projects/webos-firstparty/` — **dateandtime is the Enyo 1 UI template we copy**
+  (deviceinfo and languagepicker are Mojo). Older set: `~/Desktop/jonwise/Projects/com.palm.app.*`.
 - Pulled stock System Updates source: `reference/com.palm.app.updates/` (what we patched).
 - Fingerprint + eligibility: `../webos-update-server/device-scripts/fingerprint.sh`, `dm/eligibility.py`.
 - webOS packaging/services knowledge: the `webos-mcp` resources (`postinst-packaging`, `js-services`, `app-structure`, `gotchas`).
