@@ -65,12 +65,17 @@ system state or write system files.
   `.otaready/arm-install` exists (absent by default), so testing never touches the OTA ramdisk.
   With no packages hosted the daemon correctly reports `{"status":"uptodate"}`.
 
+- **Redirect UX fixed (v1.1.1):** "Use New Update Server" now shows a confirmation Dialog first
+  ("the screen goes dark for several seconds and open apps close — expected, not a crash"), because
+  the redirect deliberately restarts Luna to reload the patched System Updates app. The abrupt
+  restart with no warning previously read as a crash.
+
 ### Broken / incomplete
-- **UI buttons not yet human-verified.** The plumbing is proven via luna-send, but the two UI
-  entry points still need a swipe-close+reopen test (lesson #5): Get Ready's "Use New Update
-  Server" (calls `redirect`) and System Updates' "Install Now" (`otareadyInstall()` → `install`).
-  System Updates' button also depends on TODO #4 — `apply_patch` doesn't cache-bust
-  com.palm.app.updates' version, so Luna may still run the pre-handoff cached `UpdatesApp.js`.
+- **UI buttons not yet human-verified.** The plumbing (bridge service, daemon actions, cache-bust)
+  is all proven via luna-send, but the two on-device buttons still need a swipe-close+reopen test
+  (lesson #5): Get Ready's "Use New Update Server" (dialog → `redirect`) and System Updates'
+  "Install Now" (`otareadyInstall()` → `install`). With TODO #4 fixed, System Updates should now
+  load the patched code after a redirect.
 
 ## Hard-won on-device lessons (do not relearn these)
 
@@ -123,10 +128,12 @@ system state or write system files.
 ## Device A current state (leftover from testing — REVERT when done)
 
 - **`com.palm.app.updates` is PATCHED in place** on rootfs: `app/UpdatesApp.js` = our reroute,
-  stock saved to `app/UpdatesApp.js.otaready-orig`, `appinfo.json` version bumped to **1.1.2**.
-  **To revert:** restore `UpdatesApp.js.otaready-orig` → `UpdatesApp.js`, set version back to `1.1.0`,
-  `killall LunaSysMgr`.
-- **`org.webosarchive.otaready` v1.1.0 installed** (titled "OTA Ready"); daemon + `/usr/bin/ota-fingerprint`
+  stock JS saved to `app/UpdatesApp.js.otaready-orig`, stock appinfo saved to
+  `appinfo.json.otaready-orig` (captured at **1.1.2**, since the manual bump predates the backup;
+  true stock is 1.1.0). `appinfo.json` version now climbs +1 per redirect (currently **1.1.3**).
+  **To revert:** run the daemon's `revert` (restores JS + appinfo from the `.otaready-orig` backups),
+  or manually restore both `.otaready-orig` files and `killall LunaSysMgr`.
+- **`org.webosarchive.otaready` v1.1.1 installed** (titled "OTA Ready"); daemon + `/usr/bin/ota-fingerprint`
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
@@ -147,10 +154,12 @@ system state or write system files.
    status. On reboot-back the app still handles `updateSuccessful`. STILL TODO here: (a) human UI
    test of the "Install Now" button (needs #4 so the new patched code actually loads); (b) real
    armed flash once packages are hosted (#5).
-4. **Fix the daemon's `redirect`/`apply_patch`** to ALSO bump `com.palm.app.updates`' version
-   (cache-bust) and close the card — right now it only swaps the file, which won't reload, so the
-   System Updates UI keeps running the cached pre-handoff `UpdatesApp.js`. **Blocks the "Install Now"
-   button from reaching the new `otareadyInstall()`** (the bridge itself is proven working).
+4. ~~Fix the daemon's `redirect`/`apply_patch` to cache-bust~~ **DONE** (v1.1.1, verified on
+   Device A 2026-07-03) — `apply_patch` now backs up + bumps `com.palm.app.updates`' appinfo
+   version by +1 on every apply (`bump_su_version`), so the Luna restart actually drops the cached
+   `UpdatesApp.js` and loads the patched code. Verified: SU version 1.1.2 → 1.1.3 on redirect.
+   `revert_patch` restores the stock appinfo from its backup too. The redirect also now waits 2s so
+   the app can show its "screen will reload" notice before Luna restarts.
 5. **Real offer content**: `/api/updates/plan → offer.json` translation is best-effort; no OTA
    packages are hosted yet. The **LunaCE launcher update** (worked on elsewhere) is the intended
    real payload; the TLS suite is delivered via Preware, not our OTA.

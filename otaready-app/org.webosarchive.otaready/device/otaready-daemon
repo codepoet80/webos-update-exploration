@@ -22,8 +22,11 @@ REFRESH_EVERY=15   # seconds
 SERVER_DEFAULT="http://192.168.10.20:8080"
 
 # System Updates app + our patched copy
-SU_JS=/usr/palm/applications/com.palm.app.updates/app/UpdatesApp.js
+SU_DIR=/usr/palm/applications/com.palm.app.updates
+SU_JS="$SU_DIR/app/UpdatesApp.js"
 SU_BAK="$SU_JS.otaready-orig"
+SU_APPINFO="$SU_DIR/appinfo.json"
+SU_APPINFO_BAK="$SU_APPINFO.otaready-orig"
 PATCHED=/media/cryptofs/apps/usr/palm/applications/org.webosarchive.otaready/device/UpdatesApp.patched.js
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') otaready: $*" >> "$LOG" 2>&1; }
@@ -65,23 +68,46 @@ make_offer() {
     fi
 }
 
+# Bump com.palm.app.updates' appinfo version by +1 on the last dotted field.
+# REQUIRED after swapping UpdatesApp.js: webOS serves cached app code, so a plain
+# Luna restart re-runs the OLD bytecode unless the version changes (hard-won
+# lesson #1). Incrementing every apply guarantees the patched code is loaded.
+bump_su_version() {
+    cur=$(sed -n 's/.*"version"[ ]*:[ ]*"\([0-9.]*\)".*/\1/p' "$SU_APPINFO" | head -1)
+    if [ -z "$cur" ]; then log "bump: could not read version from $SU_APPINFO"; return 1; fi
+    major=$(echo "$cur" | cut -d. -f1)
+    minor=$(echo "$cur" | cut -d. -f2); [ -z "$minor" ] && minor=0
+    patch=$(echo "$cur" | cut -d. -f3); [ -z "$patch" ] && patch=0
+    new="$major.$minor.$((patch + 1))"
+    tmp="$SU_APPINFO.otaready-tmp"
+    if sed 's/"version"[ ]*:[ ]*"[0-9.]*"/"version": "'"$new"'"/' "$SU_APPINFO" > "$tmp" && cp "$tmp" "$SU_APPINFO"; then
+        rm -f "$tmp"; log "bumped com.palm.app.updates version $cur -> $new (cache-bust)"
+    else
+        rm -f "$tmp"; log "bump: failed to rewrite $SU_APPINFO"; return 1
+    fi
+}
+
 apply_patch() {   # redirect: make System Updates use our server
     if [ ! -f "$PATCHED" ]; then log "patched UpdatesApp.js missing at $PATCHED"; return 1; fi
     mount -o rw,remount / 2>/dev/null || true
-    [ -f "$SU_BAK" ] || cp -p "$SU_JS" "$SU_BAK"
+    [ -f "$SU_BAK" ] || cp -p "$SU_JS" "$SU_BAK"                 # save stock JS once
+    [ -f "$SU_APPINFO_BAK" ] || cp -p "$SU_APPINFO" "$SU_APPINFO_BAK"  # save stock appinfo once
     cp "$PATCHED" "$SU_JS"
     chmod 644 "$SU_JS"
+    bump_su_version                                             # force Luna to drop cached UpdatesApp.js
     echo '{"status":"applied"}' > "$DIR/redirect-result.json"
     log "applied UpdatesApp.js reroute (backup: $SU_BAK)"
+    sleep 2                                                     # let the app show its "screen will reload" notice
     luna_restart
 }
 
-revert_patch() {  # revert: restore the stock System Updates app
+revert_patch() {  # revert: restore the stock System Updates app (JS + version)
     mount -o rw,remount / 2>/dev/null || true
     if [ -f "$SU_BAK" ]; then
         cp -p "$SU_BAK" "$SU_JS"; rm -f "$SU_BAK"
+        [ -f "$SU_APPINFO_BAK" ] && { cp -p "$SU_APPINFO_BAK" "$SU_APPINFO"; rm -f "$SU_APPINFO_BAK"; }
         echo '{"status":"reverted"}' > "$DIR/redirect-result.json"
-        log "reverted UpdatesApp.js"
+        log "reverted UpdatesApp.js + appinfo"
         luna_restart
     else
         log "no backup to revert"

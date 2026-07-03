@@ -80,7 +80,21 @@ enyo.kind({
         // files, so the redirect handoff goes through this JS service.
         { name: "otareadyTrigger", kind: "PalmService",
           service: "palm://org.webosarchive.otaready.service/", method: "trigger",
-          onSuccess: "onRedirectOk", onFailure: "onRedirectFail" }
+          onSuccess: "onRedirectOk", onFailure: "onRedirectFail" },
+
+        // Warn before redirecting: applying the patch restarts Luna, which looks
+        // exactly like a crash if it happens with no heads-up.
+        { name: "confirmDialog", kind: "Dialog", lazy: false, components: [
+            { className: "otaready-dialog-title", content: "Switch to the new update server?" },
+            { className: "otaready-dialog-text", allowHtml: true, content:
+                "This sets up <b>System Updates</b> to read the community update offer.<br><br>" +
+                "The update system will reload, so <b>the screen goes dark for several seconds and " +
+                "open apps close</b>. That's expected — it isn't a crash." },
+            { className: "otaready-dialog-buttons", layoutKind: "HFlexLayout", pack: "center", components: [
+                { kind: "Button", caption: "Cancel", onclick: "cancelRedirect" },
+                { kind: "Button", className: "enyo-button-affirmative", caption: "Continue", onclick: "confirmRedirect" }
+            ]}
+        ]}
     ],
 
     create: function() {
@@ -177,22 +191,29 @@ enyo.kind({
     },
 
     doRedirect: function() {
+        this.$.confirmDialog.open();
+    },
+
+    cancelRedirect: function() {
+        this.$.confirmDialog.close();
+    },
+
+    confirmRedirect: function() {
+        this.$.confirmDialog.close();
         this.$.redirectBtn.setDisabled(true);
-        this.$.adviceText.setContent("Pointing System Updates at the community update server…");
+        this.$.adviceText.setContent(
+            "Switching update server… the screen will reload in a moment. This is expected.");
         this.$.adviceGroup.show();
         this.$.otareadyTrigger.call({ cmd: "redirect" });
     },
 
     onRedirectOk: function(inSender, inResponse) {
-        if (inResponse && inResponse.returnValue) {
-            this.$.adviceText.setContent(
-                "Done. Open <b>System Updates</b> and tap <b>Check Now</b> — it now reads the community " +
-                "offer. (The screen may flash as it reloads.)");
-        } else {
+        // The daemon restarts Luna right after applying the patch, so this often
+        // won't run — the card is torn down first. Handle it anyway in case the
+        // service reports a failure before any restart.
+        if (inResponse && !inResponse.returnValue) {
             this.onRedirectFail(inSender, inResponse);
-            return;
         }
-        this.$.redirectBtn.setDisabled(false);
     },
 
     onRedirectFail: function(inSender, inResponse) {
