@@ -1,10 +1,11 @@
 {
   "id": "org.webosarchive.otaready",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "vendor": "webOS Archive",
   "type": "web",
   "main": "index.html",
   "title": "OTA Ready (Beta)",
   "icon": "icon.png",
+  "splashicon": "icon-256x256.png",
   "uiRevision": 2
 }

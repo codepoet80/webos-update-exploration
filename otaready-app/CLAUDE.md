@@ -167,7 +167,7 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
   + `/usr/bin/ota-direct-update` + `/etc/event.d/otaready-daemon` installed; daemon running.
 - **Bridge service registered**: `org.webosarchive.otaready.service` on the Luna bus (LS2 files in
   `/var/palm/ls2/{roles,services}/{prv,pub}/`). Device A was **rebooted once** on 2026-07-03 to load it.
-- **App v1.1.9 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
+- **App v1.1.10 installed** (title "OTA Ready (Beta)"; in-app header "OTA Ready"); daemon is the v1.1.6
   build. OTA Ready shows the **3-state model**, runs an **App Museum II self-update check on launch**
   (see below), and has an **App Menu** (swipe from top-left): **Reset OTA Test** (bridge `reset` →
   daemon rm `.installed`, re-offers), **Save Device Details** (bridge `saveDetails` copies
@@ -191,10 +191,12 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
 ## What's left (TODO, roughly in order)
 
 1. ~~Verify Part 1 theming/UI on device~~ **DONE** — v1.0.3 confirmed looking right on Device A (2026-07-03).
-2. ~~Replace the placeholder icon~~ **DONE** (v1.0.4) — custom webOS-style glossy-circle icon
-   (broadcast arcs + green download arrow); 64px launcher + 48px header both rendered from the
-   generator script (`tools/make_icon.py`, run from the app root; redraws at 512px and downscales). App renamed
-   to **"OTA Ready"** (appinfo title, in-app header, html title).
+2. ~~Replace the placeholder icon~~ **DONE** — final icon (v1.1.10): glossy dark circle with the
+   stock System Updates **gift** (composited from `org.webosarchive.otaready/updates.png`, its grey
+   platform auto-knocked-out) above a green download arrow + white slot. `tools/make_icon.py`
+   generates **3 sizes** — `icon.png` (64), `images/header-icon-otaready.png` (48),
+   `icon-256x256.png` (256, also appinfo `splashicon`) — drawing the circle/arrow on a 2048px master
+   and compositing the gift at each output's native size. App title "OTA Ready (Beta)".
 3. ~~Build the Install handoff (Part 2)~~ **DONE** (v1.1.0, plumbing verified via luna-send) —
    JS bridge service + daemon `install`/`do_install` (direct-update prep, `arm-install`-gated
    flash) + `install-status.json` feedback. Patched `otareadyInstall()` calls the service and polls
