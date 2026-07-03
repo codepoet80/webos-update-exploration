@@ -6,6 +6,7 @@ Implements the SyncML/OMA DM protocol for software updates.
 """
 import logging
 import base64
+import json
 import time
 from collections import defaultdict, deque
 from logging.handlers import RotatingFileHandler
@@ -165,6 +166,27 @@ async def status():
         "sessions": len(session_manager.sessions),
         "packages": len(update_manager.packages),
     }
+
+
+@app.get("/api/updates/offer")
+async def updates_offer():
+    """The single canonical OTA offer served to EVERY eligible device.
+
+    Deploy = edit offer.json (one file) and git-push. It's returned in the native
+    UpdatesApp payload shape ({status:"Available", version, size, installTime, ...});
+    set {"status":"UpToDate"} to withdraw the offer for everyone.
+
+    This endpoint is content only — per-device eligibility (custom kernel /
+    unsupported model / detected incompatibility) is gated on-device by the daemon
+    using the local fingerprint, so excluded devices never see this.
+    """
+    offer_path = config.BASE_DIR / "offer.json"
+    if offer_path.exists():
+        try:
+            return json.loads(offer_path.read_text())
+        except Exception as e:
+            logger.error(f"offer.json unreadable, serving UpToDate: {e}")
+    return {"status": "UpToDate", "networkAvailable": True}
 
 
 @app.get("/health")
