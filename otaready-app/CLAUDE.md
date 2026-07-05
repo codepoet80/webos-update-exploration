@@ -46,7 +46,7 @@ system state or write system files.
   both screens agree. States: 1 not-redirected (show re-point button) · 2 redirected+!contacted ·
   3 redirected+contacted (show last check + result).
 - **`offer.json`** is in the native UpdatesApp payload shape: `{status:"Available", version, size, installTime, networkAvailable, priority}` (or `{status:"UpToDate"}`).
-  **Offer model (v1.1.11):** every *eligible* device gets the same single **server-hosted** offer —
+  **Offer model (v1.2.0):** every *eligible* device gets the same single **server-hosted** offer —
   the daemon `GET`s `/api/updates/offer` (one `offer.json` the server admin edits + git-pushes) and
   serves it verbatim. Eligibility is an **exclusion gate applied on-device**: the daemon only offers
   when the local fingerprint says `ready:true` (a custom kernel / unsupported model / unrecognised
@@ -56,6 +56,20 @@ system state or write system files.
 - Eligibility comes from `../webos-update-server` (`dm/eligibility.py`, `/api/updates/plan`, `packages/eligibility.json`).
 
 ## Status (2026-07-03) — BETA IS LIVE
+
+**v1.2.0 (2026-07-05) — from beta-tester device details.** Built + packaged for the community.
+- **All 8 L/T/Q combos are now defined baselines** (was A–E). Added **F=011** (stock launcher +
+  TLS + QupZilla — testers achunt + moustacheboy hit it and were wrongly held at UNKNOWN/REVIEW),
+  plus **G=001** and **H=100** to complete the matrix. F is OTA-ready (T=1); G/H are T=0 so they get
+  action INSTALL_TLS (not offered until TLS is installed → then G→F, H→E). Nothing that lacks TLS is
+  ever offered the OTA. See `../Update Baselines.md` and `device-scripts/fingerprint.sh`.
+- **Free-space diagnostic fixed** (`device/otaready-daemon`): `df -k` wraps the long
+  `/dev/mapper/store-media` name to its own line, shifting positional columns so free always read 0.
+  Now an NF-relative parse anchored on the `/media/internal` mount line. Verified on hardware.
+- **GOTCHA:** the fingerprint lives in TWO copies that must stay in sync — the canonical
+  `../webos-update-server/device-scripts/fingerprint.sh` and the app's `device/ota-fingerprint`
+  (installs as `/usr/bin/ota-fingerprint`, what the daemon runs). `build.sh` copies the canonical one
+  into the bundle at build time, so build from a clean canonical source.
 
 **End-to-end validated on a fresh device via the real Museum path (device E, 2026-07-03).**
 The whole chain works for actual users now: **install "OTA Ready" from App Museum II (Preware) →
@@ -67,7 +81,7 @@ System Updates → the server-hosted offer flows in → Install**. This is the g
   `systemctl` service, git-to-deploy, valid TLS). Serves the single canonical offer at
   `/api/updates/offer` from `offer.json` (edit + git push to change what all devices are offered).
 - **App is published to App Museum II** as **"OTA Ready"** (self-update check keys off that exact
-  name). Museum candidate build: **v1.1.11**.
+  name). Museum candidate build: **v1.2.0**.
 - **Confirm next session:** whether the *armed flash* (`arm-install` → reboot into OTA ramdisk →
   install → reboot-back) actually ran in the device-E e2e, or if e2e went through the offer/prepare
   stage. That's the one step never separately confirmed on hardware. (User said "all went well" but
@@ -202,7 +216,7 @@ cd ../webos-update-server && <venv>/bin/uvicorn server:app --host 0.0.0.0 --port
 Point a device at the LAN instance by writing its URL into `/media/internal/.otaready/server-url`
 (overrides the production default). `config.py` auto-detects the LAN IP when `[public] host` is blank.
 
-## The app (v1.1.11, "OTA Ready (Beta)"; App Museum name "OTA Ready")
+## The app (v1.2.0, "OTA Ready (Beta)"; App Museum name "OTA Ready")
 
 - **3-state model** for a READY device (from `server-state.json`): 1 not-redirected (show "Use New
   Update Server") · 2 redirected/awaiting-server · 3 redirected+contacted (last check + result).
