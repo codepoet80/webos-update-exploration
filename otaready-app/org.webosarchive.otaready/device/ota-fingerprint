@@ -45,7 +45,14 @@
 #   T = Community TLS 1.3  -> private modern stack at /usr/lib/ssl11. Does NOT change
 #                             `openssl version` / system libssl.so.0.9.8 (stay 0.9.8k).
 #   Q = nizovn Qt5/QupZilla-> com.nizovn.qupzilla PDK app.
-#     L T Q -> A=111 B=010 C=101 D=000 E=110  (else UNKNOWN)
+#     L T Q -> A=111 B=010 C=101 D=000 E=110 F=011 G=001 H=100  (all 8 defined)
+#     F (011) = stock launcher + community TLS + QupZilla: the common "modernized
+#     but skipped the opt-in LunaCE launcher swap" config. Ready (T=1); nothing
+#     auto-pushed (already has TLS+browser); LunaCE remains an opt-in offer.
+#     G (001) = stock launcher + QupZilla but NO community TLS (QupZilla ships its own
+#     crypto, so a browser-only user lands here). H (100) = LunaCE launcher only.
+#     Both are T=0 -> not OTA-ready yet (can't reach the HTTPS server); action
+#     INSTALL_TLS. Once TLS is added they roll into a ready baseline (G->F, H->E).
 #
 # EVIDENCE (logged, never gates):
 #   - Optware OpenSSL (mobi.optware.openssl): vestigial /opt-only 0.9.8 build. Owns no
@@ -162,6 +169,9 @@ fp_detect() {
         101) FP_BASELINE=C ;;
         000) FP_BASELINE=D ;;
         110) FP_BASELINE=E ;;
+        011) FP_BASELINE=F ;;   # stock launcher + community TLS + QupZilla (no LunaCE)
+        001) FP_BASELINE=G ;;   # stock launcher + QupZilla, no TLS (needs TLS first)
+        100) FP_BASELINE=H ;;   # LunaCE launcher only, no TLS/browser (needs TLS first)
         *)   FP_BASELINE=UNKNOWN
              FP_REASON="Topaz, but L$FP_L T$FP_T Q$FP_Q is not a defined baseline -- deploy policy TBD; do not push" ;;
     esac

@@ -33,7 +33,7 @@
       "eligibility": { "needs_capability": "modern_tls" },
       "members": ["org.webosinternals.browser-tls13", "org.webosinternals.luna-tls13", "org.webosinternals.curl-tls13", "com.palm.rootcertsupdate", "org.webosinternals.ntpdate-sync"],
       "conflict_watch": ["org.webosinternals.patches.browser-*"],
-      "notes": "Core modernization: private /usr/lib/ssl11 stack + current root certs + clock sync. Low-risk (leaves system OpenSSL untouched). Delivered to devices that LACK modern TLS (T==0): baselines C and D."
+      "notes": "Core modernization: private /usr/lib/ssl11 stack + current root certs + clock sync. Low-risk (leaves system OpenSSL untouched). Delivered to devices that LACK modern TLS (T==0): baselines C, D, G, H."
     },
     {
       "id": "openssl-1.0.2u",
@@ -52,7 +52,7 @@
       "auto": false,
       "eligibility": { "needs_capability": "modern_browser" },
       "members": ["com.nizovn.qupzilla", "com.nizovn.qt5sdk", "com.nizovn.qt5", "com.nizovn.glibc", "com.nizovn.openssl", "com.nizovn.cacert"],
-      "notes": "OPT-IN enhancement, not auto-pushed. Heavy (Qt5 + glibc stack). Candidate offer for devices lacking a modern browser (Q==0: baselines B, D, E). Product decision pending."
+      "notes": "OPT-IN enhancement, not auto-pushed. Heavy (Qt5 + glibc stack). Candidate offer for devices lacking a modern browser (Q==0: baselines B, D, E, H). Product decision pending."
     },
     {
       "id": "lunace-launcher",
@@ -62,7 +62,7 @@
       "eligibility": { "needs_capability": "lunace_launcher" },
       "members": ["(LunaSysMgr swap)"],
       "conflict_watch": ["luna-tls13 launcher edit (documented brick when combined)"],
-      "notes": "OPT-IN only, never auto-pushed. Swaps /usr/bin/LunaSysMgr; documented brick when stacked with the ssl11 launcher edit. Candidate offer for L==0 devices (B, D). Requires standalone per-device testing; product decision pending."
+      "notes": "OPT-IN only, never auto-pushed. Swaps /usr/bin/LunaSysMgr; documented brick when stacked with the ssl11 launcher edit. Candidate offer for L==0 devices (B, D, F, G). Requires standalone per-device testing; product decision pending."
     }
   ]
 }

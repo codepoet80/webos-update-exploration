@@ -238,7 +238,13 @@ write_diagnostics() {
         echo "App version: ${appver:-unknown}"
         echo "webOS build: $(grep '^BUILDNAME=' /etc/palm-build-info 2>/dev/null | cut -d= -f2)"
         echo "Uptime (s): $(cut -d. -f1 /proc/uptime 2>/dev/null)"
-        echo "Free space: $(df -k /media/internal 2>/dev/null | awk 'END{printf "%d MB free of %d MB\n", $4/1024, $2/1024}')"
+        # Parse df fields from the RIGHT (NF-relative): the LVM device name is long
+        # enough that df wraps it to its own line, shifting positional columns and
+        # making $4/$2 read the wrong values (free always came out 0). Anchoring on
+        # the mount-point line and counting back from Mounted-on is wrap-proof:
+        #   ... 1K-blocks Used Available Use% Mounted-on
+        #      NF-4      NF-3 NF-2      NF-1 NF
+        echo "Free space: $(df -k /media/internal 2>/dev/null | awk '$NF=="/media/internal"{printf "%d MB free of %d MB\n", $(NF-2)/1024, $(NF-4)/1024}')"
         echo
         echo "--- fingerprint (status.json) ---"
         cat "$STATUS" 2>/dev/null

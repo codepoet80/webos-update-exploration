@@ -7,7 +7,7 @@ in packages/eligibility.json, and returns which packages the device should recei
 Design:
   - The fingerprint VERDICT gates everything. UNSUPPORTED / HAZARD / UNKNOWN -> empty
     plan (refused), regardless of axes.
-  - For a real baseline (A-E), each package is evaluated against the capabilities the
+  - For a real baseline (A-H), each package is evaluated against the capabilities the
     device already has (derived from the L/T/Q axes). A package is eligible when the
     device LACKS the capability it provides ("needs_capability"), or "always", and is
     never eligible when marked "never" (deprecated).
@@ -21,13 +21,16 @@ from pathlib import Path
 
 REFUSE_VERDICTS = ("UNSUPPORTED", "HAZARD", "UNKNOWN")
 
-# L/T/Q axis triples for the five defined baselines.
+# L/T/Q axis triples for the defined baselines.
 BASELINE_AXES = {
     "A": {"L": 1, "T": 1, "Q": 1},
     "B": {"L": 0, "T": 1, "Q": 0},
     "C": {"L": 1, "T": 0, "Q": 1},
     "D": {"L": 0, "T": 0, "Q": 0},
     "E": {"L": 1, "T": 1, "Q": 0},
+    "F": {"L": 0, "T": 1, "Q": 1},  # stock launcher + community TLS + QupZilla (no LunaCE)
+    "G": {"L": 0, "T": 0, "Q": 1},  # stock launcher + QupZilla, no TLS (INSTALL_TLS; -> F once TLS added)
+    "H": {"L": 1, "T": 0, "Q": 0},  # LunaCE launcher only, no TLS/browser (INSTALL_TLS; -> E once TLS added)
 }
 
 DEFAULT_POLICY_PATH = Path(__file__).resolve().parent.parent / "packages" / "eligibility.json"
@@ -49,8 +52,8 @@ def _device_has(capability, axes):
 
 def resolve(fingerprint, policy=None):
     """
-    fingerprint: dict with at least {"baseline": "A".."E" | "UNSUPPORTED"|"HAZARD"|"UNKNOWN"}.
-                 For A-E the axes are looked up from BASELINE_AXES; callers may also pass
+    fingerprint: dict with at least {"baseline": "A".."H" | "UNSUPPORTED"|"HAZARD"|"UNKNOWN"}.
+                 For A-H the axes are looked up from BASELINE_AXES; callers may also pass
                  explicit "L"/"T"/"Q" to override (e.g. for an UNKNOWN combo you still want
                  to reason about).
     Returns a plan dict.
@@ -129,10 +132,10 @@ if __name__ == "__main__":
     policy = load_policy()
     print("Policy v%s — %s\n" % (policy["policy_version"], DEFAULT_POLICY_PATH.name))
 
-    print("=== Defined baselines (A-E) ===")
+    print("=== Defined baselines (A-H) ===")
     hdr = "%-4s %-9s  %-26s  %-34s  %s" % ("base", "L/T/Q", "DELIVER (auto)", "OFFER (opt-in)", "SKIPPED")
     print(hdr); print("-" * len(hdr))
-    for b in "ABCDE":
+    for b in "ABCDEFGH":
         plan = resolve({"baseline": b}, policy)
         axes = plan["axes"]
         print("%-4s %-9s  %-26s  %-34s  %s" % (
@@ -145,7 +148,7 @@ if __name__ == "__main__":
         print("%-12s -> deliver=%s   (%s)" % (v, _fmt(plan["deliver"]), plan["reason"][:70]))
 
     print("\n=== Why, per baseline ===")
-    for b in "ABCDE":
+    for b in "ABCDEFGH":
         plan = resolve({"baseline": b}, policy)
         print("\nBaseline %s:" % b)
         for e in plan["deliver"]:
